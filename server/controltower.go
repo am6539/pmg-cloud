@@ -6,10 +6,12 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
 	controltowerv1grpc "buf.build/gen/go/safedep/api/grpc/go/safedep/services/controltower/v1/controltowerv1grpc"
+	ctv1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/controltower/v1"
 	servicev1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/services/controltower/v1"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
@@ -29,16 +31,66 @@ type Server struct {
 	logDate string // current log file date (YYYYMMDD)
 }
 
-// storedEvent is the on-disk representation of one received event.
+// storedEvent is the on-disk JSONL record for one received event.
+// Top-level fields are extracted for direct queryability with jq or other tools.
+// The raw "event" blob preserves everything for completeness.
 type storedEvent struct {
-	ReceivedAt   time.Time       `json:"received_at"`
-	TenantID     string          `json:"tenant_id,omitempty"`
-	EndpointID   string          `json:"endpoint_id,omitempty"`
-	InvocationID string          `json:"invocation_id,omitempty"`
-	ToolName     string          `json:"tool_name,omitempty"`
-	ToolVersion  string          `json:"tool_version,omitempty"`
-	EventID      string          `json:"event_id"`
-	Event        json.RawMessage `json:"event"`
+	// --- always present ---
+	ReceivedAt   time.Time  `json:"received_at"`
+	TenantID     string     `json:"tenant_id,omitempty"`
+	EventID      string     `json:"event_id"`
+	InvocationID string     `json:"invocation_id,omitempty"`
+	ToolName     string     `json:"tool_name,omitempty"`
+	ToolVersion  string     `json:"tool_version,omitempty"`
+	EventTime    *time.Time `json:"event_time,omitempty"` // client-side timestamp
+
+	// --- endpoint identity ---
+	EndpointID string `json:"endpoint_id,omitempty"`
+	MachineID  string `json:"machine_id,omitempty"`
+	Hostname   string `json:"hostname,omitempty"`
+	OS         string `json:"os,omitempty"`
+	Arch       string `json:"arch,omitempty"`
+
+	// --- pmg event type ---
+	EventType string `json:"event_type,omitempty"` // PACKAGE_DECISION | SESSION_SUMMARY | INSECURE_BYPASS | SANDBOX_OVERRIDE | ERROR | HOST_OBSERVATION
+
+	// --- package_decision fields (set when event_type == PACKAGE_DECISION) ---
+	Ecosystem      string `json:"ecosystem,omitempty"`
+	PackageName    string `json:"package_name,omitempty"`
+	PackageVersion string `json:"package_version,omitempty"`
+	Action         string `json:"action,omitempty"` // BLOCKED | CONFIRMED | TRUSTED | COOLDOWN_BLOCKED
+	// *bool pointers: nil = field not applicable for this event type; false/true = explicit value.
+	IsMalware  *bool  `json:"is_malware,omitempty"`
+	IsVerified *bool  `json:"is_verified,omitempty"`
+	AnalysisID string `json:"analysis_id,omitempty"`
+
+	// --- session_summary fields (set when event_type == SESSION_SUMMARY) ---
+	PackageManager       string `json:"package_manager,omitempty"`
+	FlowType             string `json:"flow_type,omitempty"` // GUARD | PROXY
+	Outcome              string `json:"outcome,omitempty"`   // SUCCESS | BLOCKED | USER_CANCELLED | ERROR | DRY_RUN | INSECURE_BYPASS
+	TotalAnalyzed        uint32 `json:"total_analyzed,omitempty"`
+	AllowedCount         uint32 `json:"allowed_count,omitempty"`
+	BlockedCount         uint32 `json:"blocked_count,omitempty"`
+	ConfirmedCount       uint32 `json:"confirmed_count,omitempty"`
+	TrustedSkipped       uint32 `json:"trusted_skipped,omitempty"`
+	CooldownBlockedCount uint32 `json:"cooldown_blocked_count,omitempty"`
+	DurationMs           int64  `json:"duration_ms,omitempty"`
+	// *bool pointers for session flags: nil = not a session_summary event.
+	SandboxEnabled    *bool `json:"sandbox_enabled,omitempty"`
+	ParanoidMode      *bool `json:"paranoid_mode,omitempty"`
+	TransitiveEnabled *bool `json:"transitive_enabled,omitempty"`
+
+	// --- invocation_context (when present) ---
+	WorkingDirectory string `json:"working_directory,omitempty"`
+	Command          string `json:"command,omitempty"`
+	CIProvider       string `json:"ci_provider,omitempty"`
+	CIRepository     string `json:"ci_repository,omitempty"`
+	CIBranch         string `json:"ci_branch,omitempty"`
+	CICommitSHA      string `json:"ci_commit_sha,omitempty"`
+	AgentName        string `json:"agent_name,omitempty"`
+
+	// --- raw event (always present for completeness) ---
+	Event json.RawMessage `json:"event"`
 }
 
 func New(dataDir string, apiKeys []string) (*Server, error) {
@@ -60,26 +112,27 @@ func (s *Server) SyncEvents(ctx context.Context, req *servicev1.SyncEventsReques
 		}
 	}
 
-	endpointID := ""
-	if ep := req.GetEndpoint(); ep != nil {
-		endpointID = ep.GetIdentifier()
-	}
+	endpoint := req.GetEndpoint()
 
 	var confirmedIDs []string
 	for _, ev := range req.GetEvents() {
 		id := ev.GetEventId()
-		if err := s.storeEvent(ev, tenantID, endpointID); err != nil {
+		if err := s.storeEvent(ev, endpoint, tenantID); err != nil {
 			slog.Error("failed to store event", "id", id, "err", err)
 			continue
 		}
 		confirmedIDs = append(confirmedIDs, id)
 	}
 
+	endpointID := ""
+	if endpoint != nil {
+		endpointID = endpoint.GetIdentifier()
+	}
 	slog.Info("synced events", "count", len(confirmedIDs), "tenant", tenantID, "endpoint", endpointID)
 	return &servicev1.SyncEventsResponse{ConfirmedEventIds: confirmedIDs}, nil
 }
 
-func (s *Server) storeEvent(ev *servicev1.ToolEvent, tenantID, endpointID string) error {
+func (s *Server) storeEvent(ev *servicev1.ToolEvent, endpoint *ctv1.EndpointIdentity, tenantID string) error {
 	raw, err := json.Marshal(ev)
 	if err != nil {
 		return err
@@ -88,12 +141,70 @@ func (s *Server) storeEvent(ev *servicev1.ToolEvent, tenantID, endpointID string
 	record := storedEvent{
 		ReceivedAt:   time.Now().UTC(),
 		TenantID:     tenantID,
-		EndpointID:   endpointID,
+		EventID:      ev.GetEventId(),
 		InvocationID: ev.GetInvocationId(),
 		ToolName:     ev.GetToolName(),
 		ToolVersion:  ev.GetToolVersion(),
-		EventID:      ev.GetEventId(),
 		Event:        json.RawMessage(raw),
+	}
+
+	// client-side event timestamp
+	if ts := ev.GetTimestamp(); ts != nil {
+		t := ts.AsTime()
+		record.EventTime = &t
+	}
+
+	// endpoint identity
+	if endpoint != nil {
+		record.EndpointID = endpoint.GetIdentifier()
+		record.MachineID = endpoint.GetMachineId()
+		if meta := endpoint.GetMetadata(); meta != nil {
+			record.Hostname = meta.GetHostname()
+			record.OS = shortEnum(meta.GetOs().String(), "ENDPOINT_OS_")
+			record.Arch = shortEnum(meta.GetArch().String(), "ENDPOINT_ARCH_")
+		}
+	}
+
+	// invocation context
+	if ic := ev.GetInvocationContext(); ic != nil {
+		record.WorkingDirectory = ic.GetWorkingDirectory()
+		record.Command = ic.GetCommand()
+		if ci := ic.GetCi(); ci != nil {
+			record.CIProvider = shortEnum(ci.GetProvider().String(), "ENDPOINT_CI_PROVIDER_")
+			record.CIRepository = ci.GetRepository()
+			record.CIBranch = ci.GetBranch()
+			record.CICommitSHA = ci.GetCommitSha()
+		}
+		if agent := ic.GetAgent(); agent != nil {
+			record.AgentName = agent.GetAgentName()
+		}
+	}
+
+	// pmg event payload
+	if pmg := ev.GetPmgEvent(); pmg != nil {
+		record.EventType = shortEnum(pmg.GetEventType().String(), "PMG_EVENT_TYPE_")
+
+		switch pmg.GetEventType() {
+		case ctv1.PmgEventType_PMG_EVENT_TYPE_PACKAGE_DECISION:
+			extractPackageDecision(&record, pmg.GetPackageDecision())
+
+		case ctv1.PmgEventType_PMG_EVENT_TYPE_SESSION_SUMMARY:
+			extractSessionSummary(&record, pmg.GetSessionSummary())
+
+		case ctv1.PmgEventType_PMG_EVENT_TYPE_INSECURE_BYPASS:
+			if bp := pmg.GetInsecureBypass(); bp != nil {
+				record.PackageManager = shortEnum(bp.GetPackageManager().String(), "PMG_PACKAGE_MANAGER_")
+			}
+
+		case ctv1.PmgEventType_PMG_EVENT_TYPE_HOST_OBSERVATION:
+			if ho := pmg.GetHostObservation(); ho != nil {
+				// override endpoint hostname with the one directly observed by the tool
+				record.Hostname = ho.GetHostname()
+			}
+
+		default:
+			// SANDBOX_OVERRIDE and ERROR carry no additional flat fields; raw blob is sufficient.
+		}
 	}
 
 	line, err := json.Marshal(record)
@@ -110,6 +221,51 @@ func (s *Server) storeEvent(ev *servicev1.ToolEvent, tenantID, endpointID string
 
 	_, err = s.logFile.Write(append(line, '\n'))
 	return err
+}
+
+func extractPackageDecision(r *storedEvent, pd *ctv1.PmgPackageDecision) {
+	if pd == nil {
+		return
+	}
+	r.Action = shortEnum(pd.GetAction().String(), "PMG_PACKAGE_ACTION_")
+	isMalware := pd.GetIsMalware()
+	isVerified := pd.GetIsVerified()
+	r.IsMalware = &isMalware
+	r.IsVerified = &isVerified
+	r.AnalysisID = pd.GetAnalysisId()
+
+	if pv := pd.GetPackageVersion(); pv != nil {
+		r.PackageVersion = pv.GetVersion()
+		if pkg := pv.GetPackage(); pkg != nil {
+			r.PackageName = pkg.GetName()
+			r.Ecosystem = shortEnum(pkg.GetEcosystem().String(), "ECOSYSTEM_")
+		}
+	}
+}
+
+func extractSessionSummary(r *storedEvent, ss *ctv1.PmgSessionSummary) {
+	if ss == nil {
+		return
+	}
+	r.PackageManager = shortEnum(ss.GetPackageManager().String(), "PMG_PACKAGE_MANAGER_")
+	r.FlowType = shortEnum(ss.GetFlowType().String(), "PMG_FLOW_TYPE_")
+	r.Outcome = shortEnum(ss.GetOutcome().String(), "PMG_SESSION_OUTCOME_")
+	r.TotalAnalyzed = ss.GetTotalAnalyzed()
+	r.AllowedCount = ss.GetAllowedCount()
+	r.BlockedCount = ss.GetBlockedCount()
+	r.ConfirmedCount = ss.GetConfirmedCount()
+	r.TrustedSkipped = ss.GetTrustedSkipped()
+	r.CooldownBlockedCount = ss.GetCooldownBlockedCount()
+	sandboxEnabled := ss.GetSandboxEnabled()
+	paranoidMode := ss.GetParanoidMode()
+	transitiveEnabled := ss.GetTransitiveEnabled()
+	r.SandboxEnabled = &sandboxEnabled
+	r.ParanoidMode = &paranoidMode
+	r.TransitiveEnabled = &transitiveEnabled
+
+	if d := ss.GetDuration(); d != nil {
+		r.DurationMs = d.AsDuration().Milliseconds()
+	}
 }
 
 // rotateIfNeeded opens a new daily log file when the date changes.
@@ -151,4 +307,25 @@ func credentialsFromContext(ctx context.Context) (tenantID, apiKey string) {
 		apiKey = vals[0]
 	}
 	return tenantID, apiKey
+}
+
+// shortEnum strips the snake_case type prefix from a proto enum string.
+// E.g. shortEnum("PMG_EVENT_TYPE_PACKAGE_DECISION", "PMG_EVENT_TYPE_") → "PACKAGE_DECISION"
+// Returns empty string for zero/UNSPECIFIED values.
+func shortEnum(s, prefix string) string {
+	if s == "" {
+		return ""
+	}
+	trimmed := strings.TrimPrefix(s, prefix)
+	if trimmed == s {
+		// prefix not found — proto default "UNSPECIFIED" names don't always carry the prefix
+		if strings.Contains(s, "UNSPECIFIED") {
+			return ""
+		}
+		return s
+	}
+	if trimmed == "" || strings.HasSuffix(trimmed, "UNSPECIFIED") {
+		return ""
+	}
+	return trimmed
 }
