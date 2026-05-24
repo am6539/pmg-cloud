@@ -1,0 +1,12 @@
+services:
+  pmg-cloud:
+    build: .
+    ports:
+      - "8443:8443"
+    volumes:
+      - ./data:/data
+      - ./certs:/certs:ro
+    environment:
+      - PMG_CLOUD_API_KEYS=changeme
+    # For local dev without TLS:
+    # command: ["--addr=:8443", "--data-dir=/data", "--insecure", "--api-keys=changeme"]
