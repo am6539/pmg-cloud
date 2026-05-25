@@ -1,0 +1,108 @@
+package dashboard
+
+import (
+	"embed"
+	"encoding/json"
+	"io/fs"
+	"net/http"
+	"sort"
+	"strconv"
+)
+
+//go:embed static
+var staticFiles embed.FS
+
+// Handler returns an http.Handler for the dashboard.
+// dataDir is the path to the JSONL event directory.
+func Handler(dataDir string) http.Handler {
+	reader := NewReader(dataDir)
+	mux := http.NewServeMux()
+
+	// serve static files at /
+	staticFS, _ := fs.Sub(staticFiles, "static")
+	mux.Handle("/", http.FileServer(http.FS(staticFS)))
+
+	// API: stats
+	mux.HandleFunc("/api/stats", func(w http.ResponseWriter, r *http.Request) {
+		days := 30
+		if d := r.URL.Query().Get("days"); d != "" {
+			if n, err := strconv.Atoi(d); err == nil && n > 0 {
+				days = n
+			}
+		}
+		events, err := reader.LoadEvents(days)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		stats := Aggregate(events)
+		writeJSON(w, stats)
+	})
+
+	// API: recent events list with optional filter
+	mux.HandleFunc("/api/events", func(w http.ResponseWriter, r *http.Request) {
+		days := 30
+		if d := r.URL.Query().Get("days"); d != "" {
+			if n, err := strconv.Atoi(d); err == nil && n > 0 {
+				days = n
+			}
+		}
+		events, err := reader.LoadEvents(days)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		// optional filter by event_type
+		if et := r.URL.Query().Get("event_type"); et != "" {
+			filtered := events[:0]
+			for _, ev := range events {
+				if ev.EventType == et {
+					filtered = append(filtered, ev)
+				}
+			}
+			events = filtered
+		}
+		// optional filter by action
+		if a := r.URL.Query().Get("action"); a != "" {
+			filtered := events[:0]
+			for _, ev := range events {
+				if ev.Action == a {
+					filtered = append(filtered, ev)
+				}
+			}
+			events = filtered
+		}
+		// sort newest first
+		sort.Slice(events, func(i, j int) bool {
+			return events[i].ReceivedAt.After(events[j].ReceivedAt)
+		})
+		// limit
+		limit := 100
+		if l := r.URL.Query().Get("limit"); l != "" {
+			if n, err := strconv.Atoi(l); err == nil && n > 0 {
+				limit = n
+			}
+		}
+		if len(events) > limit {
+			events = events[:limit]
+		}
+		writeJSON(w, events)
+	})
+
+	// API: endpoints
+	mux.HandleFunc("/api/endpoints", func(w http.ResponseWriter, r *http.Request) {
+		events, err := reader.LoadEvents(0) // all time
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		writeJSON(w, EndpointList(events))
+	})
+
+	return mux
+}
+
+func writeJSON(w http.ResponseWriter, v any) {
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(v)
+}

@@ -6,10 +6,12 @@ import (
 	"fmt"
 	"log/slog"
 	"net"
+	"net/http"
 	"os"
 	"strings"
 
 	controltowerv1grpc "buf.build/gen/go/safedep/api/grpc/go/safedep/services/controltower/v1/controltowerv1grpc"
+	"github.com/yourorg/pmg-cloud/dashboard"
 	"github.com/yourorg/pmg-cloud/server"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
@@ -23,6 +25,7 @@ func main() {
 	insecure := flag.Bool("insecure", false, "Disable TLS (plaintext gRPC, for local dev)")
 	dataDir := flag.String("data-dir", "data", "Directory for event storage")
 	apiKeysFlag := flag.String("api-keys", "", "Comma-separated list of accepted API keys (empty = no auth)")
+	httpAddr := flag.String("http-addr", ":8080", "HTTP dashboard listen address (empty to disable)")
 	flag.Parse()
 
 	// Also support API keys from env
@@ -82,6 +85,15 @@ func main() {
 		authMode = fmt.Sprintf("%d API key(s)", len(apiKeys))
 	}
 	slog.Info("pmg-cloud started", "addr", *addr, "insecure", *insecure, "auth", authMode, "data_dir", *dataDir)
+
+	if *httpAddr != "" {
+		go func() {
+			slog.Info("dashboard started", "addr", *httpAddr)
+			if err := http.ListenAndServe(*httpAddr, dashboard.Handler(*dataDir)); err != nil {
+				slog.Error("dashboard error", "err", err)
+			}
+		}()
+	}
 
 	if err := s.Serve(lis); err != nil {
 		slog.Error("server error", "err", err)
