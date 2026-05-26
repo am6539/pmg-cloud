@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"crypto/tls"
 	"flag"
 	"fmt"
@@ -30,6 +31,7 @@ func main() {
 	retentionDays := flag.Int("retention-days", 30, "Delete event files older than this many days (0 = disabled)")
 	dashUser := flag.String("dash-user", "", "Dashboard HTTP basic auth username (empty = no auth)")
 	dashPass := flag.String("dash-pass", "", "Dashboard HTTP basic auth password")
+	malwareRefreshInterval := flag.Duration("malware-refresh-interval", 6*time.Hour, "Auto-refresh interval for the Aikido malware feed (0 = disabled)")
 	flag.Parse()
 
 	// Also support API keys from env
@@ -140,6 +142,9 @@ func main() {
 			}
 			slog.Info("dashboard started", "addr", *httpAddr)
 			mirror := dashboard.NewMalwareMirror(*dataDir + "/aikido-mirror")
+			if *malwareRefreshInterval > 0 {
+				mirror.StartAutoRefresh(context.Background(), *malwareRefreshInterval)
+			}
 
 			userStore, err := dashboard.NewUserStore(*dataDir, *dashUser, *dashPass)
 			if err != nil {
