@@ -23,7 +23,7 @@ type AuditEntry struct {
 // AuditLog appends structured audit entries to a JSONL file.
 type AuditLog struct {
 	path string
-	mu   sync.Mutex
+	mu   sync.RWMutex
 }
 
 // NewAuditLog creates an AuditLog that writes to audit.jsonl inside dataDir.
@@ -62,8 +62,8 @@ func (al *AuditLog) Log(action, subject, detail string) {
 
 // Read returns audit entries newest-first. limit=0 returns all entries.
 func (al *AuditLog) Read(limit int) ([]AuditEntry, error) {
-	al.mu.Lock()
-	defer al.mu.Unlock()
+	al.mu.RLock()
+	defer al.mu.RUnlock()
 
 	f, err := os.Open(al.path)
 	if os.IsNotExist(err) {

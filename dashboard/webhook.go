@@ -2,6 +2,7 @@ package dashboard
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"log/slog"
 	"net/http"
@@ -28,12 +29,17 @@ type WebhookDelivery struct {
 
 // NewWebhookDelivery creates a WebhookDelivery and starts the background worker.
 func NewWebhookDelivery(cfg *ConfigStore) *WebhookDelivery {
+	return NewWebhookDeliveryWithContext(context.Background(), cfg)
+}
+
+// NewWebhookDeliveryWithContext creates a WebhookDelivery whose worker exits when ctx is done.
+func NewWebhookDeliveryWithContext(ctx context.Context, cfg *ConfigStore) *WebhookDelivery {
 	wd := &WebhookDelivery{
 		cfg:    cfg,
 		client: &http.Client{Timeout: 5 * time.Second},
 		queue:  make(chan WebhookPayload, 200),
 	}
-	go wd.worker()
+	go wd.worker(ctx)
 	return wd
 }
 
@@ -46,9 +52,17 @@ func (wd *WebhookDelivery) Send(p WebhookPayload) {
 	}
 }
 
-func (wd *WebhookDelivery) worker() {
-	for p := range wd.queue {
-		wd.deliver(p)
+func (wd *WebhookDelivery) worker(ctx context.Context) {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case p, ok := <-wd.queue:
+			if !ok {
+				return
+			}
+			wd.deliver(p)
+		}
 	}
 }
 

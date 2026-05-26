@@ -25,8 +25,9 @@ type Server struct {
 	controltowerv1grpc.UnimplementedEndpointServiceServer
 
 	dataDir string
-	apiKeys map[string]struct{}   // static key set (backward compat); empty = no auth
-	groups  *dashboard.GroupStore // group-based auth; takes precedence when it has keys
+	apiKeys map[string]struct{}        // static key set (backward compat); empty = no auth
+	groups  *dashboard.GroupStore      // group-based auth; takes precedence when it has keys
+	webhook *dashboard.WebhookDelivery // may be nil
 
 	mu      sync.Mutex
 	logFile *os.File
@@ -98,14 +99,14 @@ type storedEvent struct {
 	Event json.RawMessage `json:"event"`
 }
 
-func New(dataDir string, apiKeys []string, groups *dashboard.GroupStore) (*Server, error) {
+func New(dataDir string, apiKeys []string, groups *dashboard.GroupStore, webhook *dashboard.WebhookDelivery) (*Server, error) {
 	keys := make(map[string]struct{}, len(apiKeys))
 	for _, k := range apiKeys {
 		if k != "" {
 			keys[k] = struct{}{}
 		}
 	}
-	return &Server{dataDir: dataDir, apiKeys: keys, groups: groups}, nil
+	return &Server{dataDir: dataDir, apiKeys: keys, groups: groups, webhook: webhook}, nil
 }
 
 func (s *Server) SyncEvents(ctx context.Context, req *servicev1.SyncEventsRequest) (*servicev1.SyncEventsResponse, error) {
@@ -234,8 +235,38 @@ func (s *Server) storeEvent(ev *servicev1.ToolEvent, endpoint *ctv1.EndpointIden
 		return err
 	}
 
-	_, err = s.logFile.Write(append(line, '\n'))
-	return err
+	if _, err = s.logFile.Write(append(line, '\n')); err != nil {
+		return err
+	}
+
+	s.dispatchWebhook(record)
+	return nil
+}
+
+// dispatchWebhook fires webhook events for malware or blocked PACKAGE_DECISION records.
+// Must be called with s.mu held (record is already persisted at this point).
+func (s *Server) dispatchWebhook(r storedEvent) {
+	if s.webhook == nil || r.EventType != "PACKAGE_DECISION" {
+		return
+	}
+	var event string
+	if r.IsMalware != nil && *r.IsMalware {
+		event = "malware_detected"
+	} else if r.Action == "BLOCKED" || r.Action == "COOLDOWN_BLOCKED" {
+		event = "package_blocked"
+	}
+	if event == "" {
+		return
+	}
+	s.webhook.Send(dashboard.WebhookPayload{
+		Event:      event,
+		Timestamp:  r.ReceivedAt,
+		GroupID:    r.GroupID,
+		Package:    r.PackageName,
+		Ecosystem:  r.Ecosystem,
+		Action:     r.Action,
+		EndpointID: r.EndpointID,
+	})
 }
 
 func extractPackageDecision(r *storedEvent, pd *ctv1.PmgPackageDecision) {
