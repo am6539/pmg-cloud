@@ -217,6 +217,7 @@ func (r *Reader) loadRangeFromDisk(from, to time.Time) ([]Event, error) {
 				}
 			}
 		}
+		_ = scanner.Err() // non-fatal: partial reads accepted
 		fh.Close()
 	}
 	return events, nil
@@ -258,6 +259,7 @@ func (r *Reader) loadFromDisk(days int) ([]Event, error) {
 				events = append(events, ev)
 			}
 		}
+		_ = scanner.Err() // non-fatal: partial reads accepted
 		fh.Close()
 	}
 	return events, nil

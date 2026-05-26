@@ -86,7 +86,7 @@ func Handler(dataDir string, deps HandlerDeps) http.Handler {
 		events = filterByGroup(events, q.Get("group_id"))
 		// optional filter by event_type
 		if et := q.Get("event_type"); et != "" {
-			filtered := events[:0]
+			filtered := make([]Event, 0, len(events))
 			for _, ev := range events {
 				if ev.EventType == et {
 					filtered = append(filtered, ev)
@@ -97,7 +97,7 @@ func Handler(dataDir string, deps HandlerDeps) http.Handler {
 		// optional filter by action (comma-separated)
 		if a := q.Get("action"); a != "" {
 			actions := splitComma(a)
-			filtered := events[:0]
+			filtered := make([]Event, 0, len(events))
 			for _, ev := range events {
 				if actions[ev.Action] {
 					filtered = append(filtered, ev)
@@ -108,7 +108,7 @@ func Handler(dataDir string, deps HandlerDeps) http.Handler {
 		// optional filter malware=true|false
 		if m := q.Get("malware"); m != "" {
 			want := m == "true"
-			filtered := events[:0]
+			filtered := make([]Event, 0, len(events))
 			for _, ev := range events {
 				if ev.IsMalware != nil && *ev.IsMalware == want {
 					filtered = append(filtered, ev)
@@ -120,12 +120,15 @@ func Handler(dataDir string, deps HandlerDeps) http.Handler {
 		sort.Slice(events, func(i, j int) bool {
 			return events[i].ReceivedAt.After(events[j].ReceivedAt)
 		})
-		// limit
+		// limit (hard cap at 10 000 to prevent memory exhaustion)
 		limit := 100
 		if l := q.Get("limit"); l != "" {
 			if n, err := strconv.Atoi(l); err == nil && n > 0 {
 				limit = n
 			}
+		}
+		if limit > 10000 {
+			limit = 10000
 		}
 		// offset (pagination)
 		offset := 0
@@ -329,6 +332,9 @@ func Handler(dataDir string, deps HandlerDeps) http.Handler {
 					http.Error(w, err.Error(), http.StatusNotFound)
 					return
 				}
+				if deps.Audit != nil {
+					deps.Audit.Log("webhook_updated", id, wh.Name)
+				}
 				writeJSON(w, wh)
 			case http.MethodDelete:
 				if err := deps.Config.DeleteWebhook(id); err != nil {
@@ -353,6 +359,9 @@ func Handler(dataDir string, deps HandlerDeps) http.Handler {
 				if n, err := strconv.Atoi(l); err == nil && n > 0 {
 					limit = n
 				}
+			}
+			if limit > 1000 {
+				limit = 1000
 			}
 			entries, err := deps.Audit.Read(limit)
 			if err != nil {
@@ -640,6 +649,9 @@ func splitComma(s string) map[string]bool {
 func parseDays(r *http.Request, def int) int {
 	if d := r.URL.Query().Get("days"); d != "" {
 		if n, err := strconv.Atoi(d); err == nil && n >= 0 {
+			if n > 365 {
+				n = 365
+			}
 			return n
 		}
 	}
@@ -650,7 +662,7 @@ func filterByGroup(events []Event, groupID string) []Event {
 	if groupID == "" {
 		return events
 	}
-	out := events[:0]
+	out := make([]Event, 0, len(events))
 	for _, ev := range events {
 		if ev.GroupID == groupID {
 			out = append(out, ev)

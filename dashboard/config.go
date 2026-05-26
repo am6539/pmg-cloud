@@ -3,8 +3,11 @@ package dashboard
 import (
 	"encoding/json"
 	"fmt"
+	"net"
+	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 )
 
@@ -87,14 +90,45 @@ func (cs *ConfigStore) Get() ServerConfig {
 
 // Update replaces the entire server configuration and persists it.
 func (cs *ConfigStore) Update(cfg ServerConfig) error {
+	if cfg.RetentionDays < 0 {
+		return fmt.Errorf("retention_days must be >= 0")
+	}
 	cs.mu.Lock()
 	defer cs.mu.Unlock()
 	cs.data = cfg
 	return cs.save()
 }
 
+// validateWebhookURL rejects non-http/https schemes, empty hosts, loopback,
+// private, and link-local IP literals to prevent SSRF attacks.
+func validateWebhookURL(rawURL string) error {
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return fmt.Errorf("invalid webhook URL: %w", err)
+	}
+	if u.Scheme != "http" && u.Scheme != "https" {
+		return fmt.Errorf("webhook URL must use http or https")
+	}
+	host := u.Hostname()
+	if host == "" {
+		return fmt.Errorf("webhook URL must have a host")
+	}
+	if strings.EqualFold(host, "localhost") {
+		return fmt.Errorf("webhook URL must not target localhost")
+	}
+	if ip := net.ParseIP(host); ip != nil {
+		if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() {
+			return fmt.Errorf("webhook URL must not target a private or loopback address")
+		}
+	}
+	return nil
+}
+
 // AddWebhook appends a new webhook entry (assigning a generated ID) and persists.
 func (cs *ConfigStore) AddWebhook(wh WebhookEntry) (WebhookEntry, error) {
+	if err := validateWebhookURL(wh.URL); err != nil {
+		return WebhookEntry{}, err
+	}
 	cs.mu.Lock()
 	defer cs.mu.Unlock()
 	wh.ID = genID()
@@ -104,6 +138,9 @@ func (cs *ConfigStore) AddWebhook(wh WebhookEntry) (WebhookEntry, error) {
 
 // UpdateWebhook replaces an existing webhook entry by ID.
 func (cs *ConfigStore) UpdateWebhook(wh WebhookEntry) error {
+	if err := validateWebhookURL(wh.URL); err != nil {
+		return err
+	}
 	cs.mu.Lock()
 	defer cs.mu.Unlock()
 	for i, w := range cs.data.Webhooks {
@@ -119,7 +156,7 @@ func (cs *ConfigStore) UpdateWebhook(wh WebhookEntry) error {
 func (cs *ConfigStore) DeleteWebhook(id string) error {
 	cs.mu.Lock()
 	defer cs.mu.Unlock()
-	hooks := cs.data.Webhooks[:0]
+	hooks := make([]WebhookEntry, 0, len(cs.data.Webhooks))
 	found := false
 	for _, w := range cs.data.Webhooks {
 		if w.ID == id {
