@@ -84,7 +84,8 @@ func main() {
 	controltowerv1grpc.RegisterEndpointServiceServer(s, svc)
 	reflection.Register(s) // enables grpcurl introspection
 
-	lis, err := net.Listen("tcp", *addr)
+	// Use tcp4 to ensure IPv4 binding on WSL2 where "tcp" defaults to IPv6-only.
+	lis, err := net.Listen("tcp4", *addr)
 	if err != nil {
 		slog.Error("failed to listen", "addr", *addr, "err", err)
 		os.Exit(1)
