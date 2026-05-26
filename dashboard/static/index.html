@@ -1,1124 +1,876 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" id="H">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>PMG Cloud Dashboard</title>
+<title>PMG Cloud</title>
 <style>
-  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f9fafb; color: #111827; display: flex; height: 100vh; overflow: hidden; }
-
-  /* Sidebar */
-  .sidebar { width: 220px; background: #fff; border-right: 1px solid #e5e7eb; display: flex; flex-direction: column; padding: 0; flex-shrink: 0; }
-  .sidebar-logo { padding: 20px 20px 16px; border-bottom: 1px solid #e5e7eb; }
-  .sidebar-logo span { font-size: 18px; font-weight: 700; color: #0D9488; letter-spacing: -0.5px; }
-  .sidebar-logo small { display: block; font-size: 11px; color: #6b7280; margin-top: 2px; }
-  .sidebar-nav { padding: 12px 8px; flex: 1; }
-  .nav-section { font-size: 10px; font-weight: 600; color: #9ca3af; text-transform: uppercase; letter-spacing: 0.8px; padding: 8px 12px 4px; }
-  .nav-item { display: flex; align-items: center; gap: 10px; padding: 8px 12px; border-radius: 6px; cursor: pointer; font-size: 13.5px; color: #374151; text-decoration: none; margin-bottom: 2px; }
-  .nav-item:hover { background: #f3f4f6; }
-  .nav-item.active { background: #f0fdfa; color: #0D9488; font-weight: 600; }
-  .nav-item svg { width: 16px; height: 16px; flex-shrink: 0; }
-
-  /* Main */
-  .main { flex: 1; overflow-y: auto; display: flex; flex-direction: column; min-width: 0; }
-  .topbar { background: #fff; border-bottom: 1px solid #e5e7eb; padding: 0 28px; height: 52px; display: flex; align-items: center; justify-content: space-between; flex-shrink: 0; gap: 12px; }
-  .topbar h1 { font-size: 16px; font-weight: 600; color: #111827; flex-shrink: 0; }
-  .topbar-right { display: flex; align-items: center; gap: 12px; flex-shrink: 0; }
-  .period-select { display: flex; gap: 4px; background: #f3f4f6; border-radius: 8px; padding: 3px; }
-  .period-btn { padding: 5px 14px; border-radius: 6px; border: none; background: transparent; font-size: 12px; cursor: pointer; color: #6b7280; font-weight: 500; }
-  .period-btn.active { background: #fff; color: #111827; box-shadow: 0 1px 3px rgba(0,0,0,.1); }
-  .refresh-info { display: flex; align-items: center; gap: 6px; font-size: 12px; color: #9ca3af; }
-  #last-updated { font-size: 11px; color: #9ca3af; white-space: nowrap; }
-  #refresh-countdown { font-size: 11px; color: #d1d5db; min-width: 24px; text-align: right; }
-  .ar-btn { border: none; background: none; cursor: pointer; padding: 4px; border-radius: 4px; color: #0D9488; display: flex; align-items: center; }
-  .ar-btn:hover { background: #f0fdfa; }
-  .ar-btn.off { color: #9ca3af; }
-
-  /* Content */
-  .content { padding: 24px 28px; flex: 1; }
-
-  /* KPI cards */
-  .kpi-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-bottom: 24px; }
-  .kpi-card { background: #fff; border: 1px solid #e5e7eb; border-radius: 10px; padding: 20px 22px; }
-  .kpi-label { display: flex; align-items: center; gap: 8px; font-size: 13px; color: #374151; font-weight: 500; margin-bottom: 12px; }
-  .kpi-label svg { width: 15px; height: 15px; }
-  .kpi-value { font-size: 32px; font-weight: 700; color: #111827; }
-  .kpi-card.danger .kpi-value { color: #dc2626; }
-  .kpi-card.warning .kpi-value { color: #d97706; }
-
-  /* Chart */
-  .chart-card { background: #fff; border: 1px solid #e5e7eb; border-radius: 10px; padding: 16px 20px; margin-bottom: 24px; }
-  .chart-title { font-size: 13px; font-weight: 600; color: #374151; margin-bottom: 14px; }
-  .chart-bars { display: flex; align-items: flex-end; gap: 2px; height: 72px; }
-  .chart-bar-wrap { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 3px; min-width: 0; }
-  .chart-bar { width: 100%; background: #0D9488; border-radius: 2px 2px 0 0; transition: opacity .15s; }
-  .chart-bar:hover { opacity: .75; }
-  .chart-bar-label { font-size: 8px; color: #9ca3af; writing-mode: vertical-rl; transform: rotate(180deg); white-space: nowrap; overflow: hidden; max-height: 38px; }
-
-  /* Table */
-  .section-title { font-size: 14px; font-weight: 600; color: #111827; margin-bottom: 12px; display: flex; align-items: center; justify-content: space-between; }
-  .section-title span { font-size: 12px; color: #6b7280; font-weight: 400; }
-  .table-wrap { background: #fff; border: 1px solid #e5e7eb; border-radius: 10px; overflow: hidden; }
-  table { width: 100%; border-collapse: collapse; font-size: 13px; }
-  th { text-align: left; padding: 10px 14px; background: #f9fafb; color: #6b7280; font-weight: 600; font-size: 11.5px; text-transform: uppercase; letter-spacing: 0.5px; border-bottom: 1px solid #e5e7eb; }
-  td { padding: 11px 14px; border-bottom: 1px solid #f3f4f6; color: #374151; }
-  tr:last-child td { border-bottom: none; }
-  tr:hover td { background: #f9fafb; }
-
-  /* Badges */
-  .badge { display: inline-flex; align-items: center; padding: 2px 9px; border-radius: 999px; font-size: 11px; font-weight: 600; }
-  .badge-red { background: #fef2f2; color: #dc2626; }
-  .badge-green { background: #f0fdf4; color: #16a34a; }
-  .badge-yellow { background: #fffbeb; color: #d97706; }
-  .badge-gray { background: #f3f4f6; color: #6b7280; }
-  .badge-teal { background: #f0fdfa; color: #0D9488; }
-
-  .empty { text-align: center; padding: 40px; color: #9ca3af; font-size: 13px; }
-  .loading { text-align: center; padding: 40px; color: #9ca3af; }
-
-  /* Filter bar */
-  .filter-bar { display: flex; gap: 8px; margin-bottom: 14px; flex-wrap: wrap; }
-  .filter-bar input, .filter-bar select { padding: 6px 10px; border: 1px solid #e5e7eb; border-radius: 6px; font-size: 13px; color: #374151; background: #fff; outline: none; }
-  .filter-bar input:focus, .filter-bar select:focus { border-color: #0D9488; box-shadow: 0 0 0 2px #ccfbf1; }
-  .filter-bar input { min-width: 180px; }
-
-  /* Copy button */
-  .copy-btn { border: none; background: #f3f4f6; cursor: pointer; padding: 3px 10px; border-radius: 5px; font-size: 11px; color: #6b7280; font-weight: 500; transition: background .15s; white-space: nowrap; }
-  .copy-btn:hover { background: #e5e7eb; color: #374151; }
-  .copy-btn.copied { background: #f0fdf4; color: #16a34a; }
-
-  /* Page sections */
-  .page { display: none; }
-  .page.active { display: block; }
-
-  /* Package stats grid */
-  .stats-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
-  @media (max-width: 1100px) { .stats-grid { grid-template-columns: 1fr 1fr; } }
-
-  /* Modal */
-  .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,.4); display: flex; align-items: center; justify-content: center; z-index: 100; }
-  .modal-overlay.hidden { display: none; }
-  .modal { background: #fff; border-radius: 12px; padding: 24px; width: 400px; max-width: 95vw; box-shadow: 0 20px 60px rgba(0,0,0,.2); }
-  .modal h2 { font-size: 15px; font-weight: 700; color: #111827; margin-bottom: 16px; }
-  .modal label { display: block; font-size: 12px; font-weight: 600; color: #374151; margin-bottom: 5px; }
-  .modal input[type=text] { width: 100%; padding: 8px 10px; border: 1px solid #d1d5db; border-radius: 6px; font-size: 13px; outline: none; }
-  .modal input[type=text]:focus { border-color: #0D9488; box-shadow: 0 0 0 2px #ccfbf1; }
-  .modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px; }
-  .btn { padding: 7px 16px; border-radius: 6px; font-size: 13px; font-weight: 500; cursor: pointer; border: none; }
-  .btn-primary { background: #0D9488; color: #fff; }
-  .btn-primary:hover { background: #0f766e; }
-  .btn-primary:disabled { opacity: .5; cursor: not-allowed; }
-  .btn-ghost { background: #f3f4f6; color: #374151; }
-  .btn-ghost:hover { background: #e5e7eb; }
-  .btn-danger-sm { padding: 3px 10px; border-radius: 5px; font-size: 11px; font-weight: 500; cursor: pointer; border: none; background: #fef2f2; color: #dc2626; }
-  .btn-danger-sm:hover { background: #fee2e2; }
-  .secret-box { background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 6px; padding: 10px 12px; margin-top: 12px; }
-  .secret-box p { font-size: 11px; color: #16a34a; font-weight: 600; margin-bottom: 6px; }
-  .secret-row { display: flex; align-items: center; gap: 8px; }
-  .secret-row code { font-family: monospace; font-size: 11px; color: #166534; word-break: break-all; flex: 1; }
-
-  /* Groups layout */
-  .groups-split { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
-  @media (max-width: 900px) { .groups-split { grid-template-columns: 1fr; } }
-  .groups-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
-  .groups-header .section-title { margin-bottom: 0; }
+:root{--bg:#f9fafb;--sf:#fff;--bd:#e5e7eb;--tx:#111827;--tx2:#374151;--tx3:#6b7280;--tx4:#9ca3af;--pr:#0D9488;--pr-bg:#f0fdfa;--dn:#dc2626;--dn-bg:#fef2f2;--wn:#d97706;--wn-bg:#fffbeb;--ok:#16a34a;--ok-bg:#f0fdf4;--hv:#f3f4f6;--hv2:#f9fafb;--sh:0 1px 3px rgba(0,0,0,.08);--sh2:0 8px 24px rgba(0,0,0,.14);--r:10px}
+.dark{--bg:#0f172a;--sf:#1e293b;--bd:#334155;--tx:#f1f5f9;--tx2:#e2e8f0;--tx3:#94a3b8;--tx4:#64748b;--pr-bg:#134e4a;--dn-bg:#450a0a;--wn-bg:#451a03;--ok-bg:#052e16;--hv:#334155;--hv2:#1e293b;--sh:0 1px 3px rgba(0,0,0,.3);--sh2:0 8px 24px rgba(0,0,0,.4)}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:var(--bg);color:var(--tx);display:flex;height:100vh;overflow:hidden;transition:background .2s,color .2s}
+input,select,button,textarea{font-family:inherit}
+.sidebar{width:218px;background:var(--sf);border-right:1px solid var(--bd);display:flex;flex-direction:column;flex-shrink:0;overflow-y:auto}
+.sidebar-logo{padding:17px 18px 13px;border-bottom:1px solid var(--bd)}
+.sidebar-logo strong{font-size:16px;font-weight:700;color:var(--pr);letter-spacing:-.3px}
+.sidebar-logo small{display:block;font-size:11px;color:var(--tx4);margin-top:2px}
+.nav-section{font-size:10px;font-weight:600;color:var(--tx4);text-transform:uppercase;letter-spacing:.8px;padding:10px 14px 4px}
+.nav-item{display:flex;align-items:center;gap:8px;padding:7px 12px;border-radius:7px;cursor:pointer;font-size:13.5px;color:var(--tx2);margin:1px 6px;white-space:nowrap;user-select:none}
+.nav-item:hover{background:var(--hv)}
+.nav-item.active{background:var(--pr-bg);color:var(--pr);font-weight:600}
+.main{flex:1;overflow:hidden;display:flex;flex-direction:column;min-width:0}
+.topbar{background:var(--sf);border-bottom:1px solid var(--bd);padding:0 18px;height:52px;display:flex;align-items:center;gap:10px;flex-shrink:0}
+.topbar h1{font-size:15px;font-weight:600;flex-shrink:0;min-width:100px}
+.tb-mid{flex:1;display:flex;align-items:center;gap:8px;overflow-x:auto;min-width:0;scrollbar-width:none}
+.tb-mid::-webkit-scrollbar{display:none}
+.tb-right{display:flex;align-items:center;gap:6px;flex-shrink:0}
+.group-sel{padding:5px 9px;border:1px solid var(--bd);border-radius:7px;background:var(--sf);color:var(--tx);font-size:12.5px;max-width:150px;cursor:pointer}
+.period-tabs{display:flex;gap:2px;background:var(--hv);border-radius:8px;padding:3px;flex-shrink:0}
+.period-tab{padding:4px 11px;border-radius:5px;border:none;background:transparent;font-size:12px;cursor:pointer;color:var(--tx3);font-weight:500;white-space:nowrap}
+.period-tab.active{background:var(--sf);color:var(--tx);box-shadow:var(--sh)}
+.date-row{display:flex;align-items:center;gap:4px;font-size:12px;flex-shrink:0}
+.date-row input{padding:4px 8px;border:1px solid var(--bd);border-radius:6px;background:var(--sf);color:var(--tx);font-size:12px;width:112px}
+.icon-btn{width:30px;height:30px;border:none;background:none;cursor:pointer;border-radius:6px;display:flex;align-items:center;justify-content:center;color:var(--tx3);font-size:15px;flex-shrink:0}
+.icon-btn:hover{background:var(--hv);color:var(--tx)}
+.alert-bar{padding:8px 18px;font-size:13px;display:none;align-items:center;gap:8px;flex-shrink:0}
+.alert-bar.warn{display:flex;background:var(--wn-bg);color:var(--wn);border-bottom:1px solid #fde68a}
+.alert-bar.danger{display:flex;background:var(--dn-bg);color:var(--dn);border-bottom:1px solid #fca5a5}
+.content{flex:1;overflow-y:auto;padding:22px 24px}
+.kpi-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(172px,1fr));gap:13px;margin-bottom:20px}
+.kpi{background:var(--sf);border:1px solid var(--bd);border-radius:var(--r);padding:16px 18px}
+.kpi-lbl{font-size:12px;color:var(--tx3);font-weight:500;margin-bottom:7px}
+.kpi-val{font-size:26px;font-weight:700;line-height:1.15}
+.kpi-delta{font-size:11px;margin-top:4px}
+.d-up{color:var(--dn)}.d-dn{color:var(--ok)}.d-ne{color:var(--tx4)}
+.kpi.danger .kpi-val{color:var(--dn)}.kpi.warn .kpi-val{color:var(--wn)}
+.card{background:var(--sf);border:1px solid var(--bd);border-radius:var(--r);padding:15px 18px;margin-bottom:18px}
+.card-title{font-size:13px;font-weight:600;color:var(--tx2);margin-bottom:12px;display:flex;justify-content:space-between;align-items:center}
+.chart-bars{display:flex;align-items:flex-end;gap:2px;height:64px}
+.cb-wrap{flex:1;display:flex;flex-direction:column;align-items:center;gap:2px;min-width:0}
+.cb{width:100%;background:var(--pr);border-radius:2px 2px 0 0;min-height:2px;cursor:default}
+.cb:hover{opacity:.7}
+.cb-lbl{font-size:8px;color:var(--tx4);writing-mode:vertical-rl;transform:rotate(180deg);white-space:nowrap;overflow:hidden;max-height:32px}
+.heatmap{display:flex;gap:2px;flex-direction:column;flex-wrap:wrap;height:104px;align-content:flex-start}
+.hm-cell{width:12px;height:12px;border-radius:2px;background:var(--hv);flex-shrink:0}
+.hm-cell.l1{background:#bbf7d0}.hm-cell.l2{background:#4ade80}.hm-cell.l3{background:#16a34a}.hm-cell.l4{background:#15803d}
+.dark .hm-cell.l1{background:#14532d}.dark .hm-cell.l2{background:#166534}.dark .hm-cell.l3{background:#15803d}.dark .hm-cell.l4{background:#16a34a}
+.two-col{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:18px}
+@media(max-width:920px){.two-col{grid-template-columns:1fr}}
+.sec-title{font-size:14px;font-weight:600;margin-bottom:10px;display:flex;align-items:center;justify-content:space-between;gap:8px}
+.sec-title small{font-size:12px;font-weight:400;color:var(--tx3)}
+.tbl-wrap{background:var(--sf);border:1px solid var(--bd);border-radius:var(--r);overflow:hidden;margin-bottom:18px}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th{text-align:left;padding:8px 13px;background:var(--hv2);color:var(--tx3);font-weight:600;font-size:11px;text-transform:uppercase;letter-spacing:.5px;border-bottom:1px solid var(--bd)}
+td{padding:9px 13px;border-bottom:1px solid var(--bd);color:var(--tx2)}
+tr:last-child td{border-bottom:none}
+tr:hover td{background:var(--hv)}
+.clickable{cursor:pointer}
+.badge{display:inline-flex;align-items:center;padding:2px 8px;border-radius:999px;font-size:11px;font-weight:600}
+.b-red{background:var(--dn-bg);color:var(--dn)}.b-green{background:var(--ok-bg);color:var(--ok)}.b-yellow{background:var(--wn-bg);color:var(--wn)}.b-gray{background:var(--hv);color:var(--tx3)}.b-teal{background:var(--pr-bg);color:var(--pr)}.b-blue{background:#eff6ff;color:#1d4ed8}
+.dark .b-blue{background:#1e3a5f;color:#93c5fd}
+.btn{display:inline-flex;align-items:center;gap:5px;padding:7px 14px;border-radius:7px;border:none;cursor:pointer;font-size:13px;font-weight:500;transition:opacity .15s;white-space:nowrap}
+.btn:hover{opacity:.85}.btn:disabled{opacity:.45;cursor:default}
+.btn-primary{background:var(--pr);color:#fff}.btn-ghost{background:var(--sf);border:1px solid var(--bd);color:var(--tx2)}.btn-sm{padding:4px 10px;font-size:12px}.btn-danger{background:var(--dn-bg);color:var(--dn);border:1px solid #fca5a5}
+.input{padding:7px 12px;border:1px solid var(--bd);border-radius:7px;background:var(--sf);color:var(--tx);font-size:13px;width:100%;outline:none}
+.input:focus{border-color:var(--pr)}
+.lbl{font-size:12px;font-weight:500;color:var(--tx3);margin-bottom:5px;display:block}
+.fg{margin-bottom:13px}
+.filter-bar{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:13px;align-items:center}
+.filter-bar select,.filter-bar input{padding:6px 10px;border:1px solid var(--bd);border-radius:7px;background:var(--sf);color:var(--tx);font-size:12.5px}
+.pager{display:flex;align-items:center;gap:8px;padding:8px 0}
+.pager .info{font-size:12px;color:var(--tx3)}
+.overlay{position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:100;display:flex;align-items:center;justify-content:center;backdrop-filter:blur(2px)}
+.modal{background:var(--sf);border-radius:12px;padding:22px;width:560px;max-width:96vw;max-height:86vh;overflow-y:auto;box-shadow:var(--sh2)}
+.modal-title{font-size:16px;font-weight:700;margin-bottom:16px;display:flex;justify-content:space-between;align-items:center}
+.modal-footer{display:flex;gap:8px;justify-content:flex-end;margin-top:16px;padding-top:14px;border-top:1px solid var(--bd)}
+.drawer-bg{position:fixed;inset:0;z-index:99;background:rgba(0,0,0,.3)}
+.drawer{position:fixed;right:0;top:0;bottom:0;width:480px;max-width:95vw;background:var(--sf);border-left:1px solid var(--bd);box-shadow:var(--sh2);z-index:100;display:flex;flex-direction:column;transform:translateX(100%);transition:transform .25s}
+.drawer.open{transform:translateX(0)}
+.drawer-hdr{padding:15px 17px;border-bottom:1px solid var(--bd);display:flex;justify-content:space-between;align-items:center;flex-shrink:0}
+.drawer-hdr h2{font-size:15px;font-weight:600}
+.drawer-body{padding:17px;overflow-y:auto;flex:1}
+.tabs{display:flex;border-bottom:1px solid var(--bd);margin-bottom:14px}
+.tab{padding:7px 15px;border:none;background:none;cursor:pointer;font-size:13px;color:var(--tx3);border-bottom:2px solid transparent;margin-bottom:-1px;font-weight:500}
+.tab.active{color:var(--pr);border-bottom-color:var(--pr)}
+.toggle{position:relative;display:inline-block;width:36px;height:20px;flex-shrink:0}
+.toggle input{opacity:0;width:0;height:0}
+.tog-sl{position:absolute;inset:0;background:var(--bd);border-radius:20px;cursor:pointer;transition:.2s}
+.tog-sl::before{content:'';position:absolute;width:14px;height:14px;left:3px;top:3px;background:#fff;border-radius:50%;transition:.2s}
+input:checked+.tog-sl{background:var(--pr)}
+input:checked+.tog-sl::before{transform:translateX(16px)}
+.empty{text-align:center;padding:38px;color:var(--tx4);font-size:13px}
+.mono{font-family:'JetBrains Mono','Fira Code',monospace;font-size:12px}
+.trunc{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:180px}
+hr{border:none;border-top:1px solid var(--bd);margin:13px 0}
+.flex{display:flex;align-items:center;gap:8px}
+.key-box{background:var(--hv);border-radius:8px;padding:11px 15px;font-family:monospace;font-size:12.5px;word-break:break-all;border:1px solid var(--bd);margin:10px 0;color:var(--tx2)}
+.wiz-step{text-align:center;padding:12px 0}
+.wiz-icon{font-size:44px;margin-bottom:12px}
+.wiz-title{font-size:20px;font-weight:700;margin-bottom:8px}
+.wiz-desc{color:var(--tx3);font-size:13.5px;margin-bottom:20px;line-height:1.6}
+.bar-wrap{flex:1;height:6px;background:var(--hv);border-radius:3px;overflow:hidden;min-width:60px}
+.bar-fill{height:6px;background:var(--pr);border-radius:3px}
+::-webkit-scrollbar{width:6px;height:6px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:var(--bd);border-radius:3px}
+@keyframes spin{to{transform:rotate(360deg)}}
+.spin{display:inline-block;animation:spin 1s linear infinite}
+code{background:var(--hv);padding:1px 5px;border-radius:4px;font-family:monospace;font-size:12px}
 </style>
 </head>
 <body>
-
-<aside class="sidebar">
+<nav class="sidebar">
   <div class="sidebar-logo">
-    <span>PMG Cloud</span>
+    <strong>&#11043; PMG Cloud</strong>
     <small>Security Dashboard</small>
   </div>
-  <nav class="sidebar-nav">
-    <div class="nav-section">Overview</div>
-    <a class="nav-item active" data-page="dashboard" onclick="navigate('dashboard')">
-      <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
-      Dashboard
-    </a>
-    <div class="nav-section">Inventory</div>
-    <a class="nav-item" data-page="events" onclick="navigate('events')">
-      <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
-      Events
-    </a>
-    <a class="nav-item" data-page="endpoints" onclick="navigate('endpoints')">
-      <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
-      Endpoints
-    </a>
-    <div class="nav-section">Intelligence</div>
-    <a class="nav-item" data-page="feeds" onclick="navigate('feeds')">
-      <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M4 11a9 9 0 0 1 9 9"/><path d="M4 4a16 16 0 0 1 16 16"/><circle cx="5" cy="19" r="1"/></svg>
-      Feed Status
-    </a>
-    <div class="nav-section">Threat &amp; Compliance</div>
-    <a class="nav-item" data-page="malicious" onclick="navigate('malicious')">
-      <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
-      Malicious Packages
-    </a>
-    <a class="nav-item" data-page="violations" onclick="navigate('violations')">
-      <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg>
-      Policy Violations
-    </a>
+  <div style="padding:6px 0 10px">
     <div class="nav-section">Analytics</div>
-    <a class="nav-item" data-page="pkgstats" onclick="navigate('pkgstats')">
-      <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
-      Package Stats
-    </a>
+    <div class="nav-item active" onclick="nav('dashboard')" data-page="dashboard">&#128202; Overview</div>
+    <div class="nav-item" onclick="nav('events')" data-page="events">&#128203; Events</div>
+    <div class="nav-item" onclick="nav('endpoints')" data-page="endpoints">&#128187; Endpoints</div>
+    <div class="nav-item" onclick="nav('packages')" data-page="packages">&#128230; Packages</div>
+    <div class="nav-item" onclick="nav('cicd')" data-page="cicd">&#128256; CI / CD</div>
+    <div class="nav-item" onclick="nav('malware')" data-page="malware">&#128737; Malware Feed</div>
     <div class="nav-section">Management</div>
-    <a class="nav-item" data-page="groups" onclick="navigate('groups')">
-      <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
-      Groups
-    </a>
-  </nav>
-</aside>
-
+    <div class="nav-item" onclick="nav('groups')" data-page="groups">&#128101; Groups</div>
+    <div class="nav-item" onclick="nav('audit')" data-page="audit">&#128220; Audit Log</div>
+    <div class="nav-item" onclick="nav('settings')" data-page="settings">&#9881; Settings</div>
+  </div>
+</nav>
 <div class="main">
   <div class="topbar">
-    <h1 id="page-title">Dashboard</h1>
-    <div class="topbar-right">
-      <span id="last-updated"></span>
-      <div class="refresh-info">
-        <button class="ar-btn" id="ar-btn" onclick="toggleAutoRefresh()" title="Auto-refresh ON">
-          <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
-        </button>
-        <span id="refresh-countdown"></span>
+    <h1 id="page-title">Overview</h1>
+    <div class="tb-mid">
+      <select class="group-sel" id="group-sel" onchange="setGroup(this.value)">
+        <option value="">All groups</option>
+      </select>
+      <div class="period-tabs">
+        <button class="period-tab" data-days="7" onclick="setPeriod(7)">7d</button>
+        <button class="period-tab active" data-days="30" onclick="setPeriod(30)">30d</button>
+        <button class="period-tab" data-days="90" onclick="setPeriod(90)">90d</button>
+        <button class="period-tab" data-days="-1" onclick="showDateRange()">Custom</button>
       </div>
-      <div class="period-select" id="period-select">
-        <button class="period-btn" onclick="setPeriod(7)">7d</button>
-        <button class="period-btn active" onclick="setPeriod(30)">30d</button>
-        <button class="period-btn" onclick="setPeriod(0)">All</button>
+      <div class="date-row" id="date-row" style="display:none">
+        <input type="date" id="from-date">
+        <span style="color:var(--tx4)">&#8211;</span>
+        <input type="date" id="to-date">
+        <button class="btn btn-sm btn-primary" onclick="applyDateRange()">Apply</button>
       </div>
+    </div>
+    <div class="tb-right">
+      <span id="ar-cd" style="font-size:11px;color:var(--tx4)"></span>
+      <button class="icon-btn" onclick="loadPage()" title="Refresh">&#8635;</button>
+      <button class="icon-btn" id="dark-btn" onclick="toggleDark()" title="Toggle dark mode">&#127769;</button>
     </div>
   </div>
-
-  <div class="content">
-    <!-- Dashboard page -->
-    <div class="page active" id="page-dashboard">
-      <div class="kpi-grid" id="kpi-grid">
-        <div class="loading">Loading&#8230;</div>
-      </div>
-      <div class="chart-card" id="chart-card" style="display:none">
-        <div class="chart-title">Events per Day</div>
-        <div class="chart-bars" id="chart-bars"></div>
-      </div>
-      <div class="section-title">
-        Recent Events
-        <span id="recent-count"></span>
-      </div>
-      <div class="table-wrap">
-        <table>
-          <thead><tr>
-            <th>Time</th><th>Endpoint</th><th>Type</th><th>Package</th><th>Action</th><th>Malware</th>
-          </tr></thead>
-          <tbody id="events-tbody"><tr><td colspan="6" class="loading">Loading&#8230;</td></tr></tbody>
-        </table>
-      </div>
-    </div>
-
-    <!-- Events page -->
-    <div class="page" id="page-events">
-      <div class="filter-bar">
-        <input id="ev-search" type="text" placeholder="Search package name..." oninput="scheduleFilter()" />
-        <select id="ev-eco" onchange="applyFilter()">
-          <option value="">All ecosystems</option>
-          <option value="npm">npm</option>
-          <option value="pypi">pypi</option>
-          <option value="maven">maven</option>
-          <option value="nuget">nuget</option>
-        </select>
-        <select id="ev-action" onchange="applyFilter()">
-          <option value="">All actions</option>
-          <option value="BLOCKED">BLOCKED</option>
-          <option value="COOLDOWN_BLOCKED">COOLDOWN_BLOCKED</option>
-          <option value="CONFIRMED">CONFIRMED</option>
-          <option value="TRUSTED">TRUSTED</option>
-        </select>
-        <select id="ev-malware" onchange="applyFilter()">
-          <option value="">All</option>
-          <option value="true">Malware only</option>
-          <option value="false">Clean only</option>
-        </select>
-      </div>
-      <div class="section-title">All Events <span id="events-page-count"></span></div>
-      <div class="table-wrap">
-        <table>
-          <thead><tr>
-            <th>Time</th><th>Tenant</th><th>Endpoint</th><th>Type</th><th>Package</th><th>Version</th><th>Ecosystem</th><th>Action</th><th>Malware</th>
-          </tr></thead>
-          <tbody id="events-page-tbody"><tr><td colspan="9" class="loading">Loading&#8230;</td></tr></tbody>
-        </table>
-      </div>
-    </div>
-
-    <!-- Endpoints page -->
-    <div class="page" id="page-endpoints">
-      <div class="section-title">Endpoints <span id="endpoints-count"></span></div>
-      <div class="table-wrap" style="overflow-x:auto">
-        <table style="min-width:900px">
-          <thead><tr>
-            <th>Endpoint</th>
-            <th>Host / OS</th>
-            <th>PMG Version</th>
-            <th>Package Managers</th>
-            <th>Sessions</th>
-            <th>Packages</th>
-            <th>Blocked</th>
-            <th>Modes</th>
-            <th>Last Seen</th>
-          </tr></thead>
-          <tbody id="endpoints-tbody"><tr><td colspan="9" class="loading">Loading&#8230;</td></tr></tbody>
-        </table>
-      </div>
-    </div>
-
-    <!-- Malicious Packages page -->
-    <div class="page" id="page-malicious">
-      <div class="section-title">
-        Malicious Packages
-        <span id="malicious-count"></span>
-      </div>
-      <div class="table-wrap">
-        <table>
-          <thead><tr>
-            <th>Time</th><th>Endpoint</th><th>Package</th><th>Version</th><th>Ecosystem</th><th>Action</th>
-          </tr></thead>
-          <tbody id="malicious-tbody"><tr><td colspan="6" class="loading">Loading&#8230;</td></tr></tbody>
-        </table>
-      </div>
-    </div>
-
-    <!-- Policy Violations page -->
-    <div class="page" id="page-violations">
-      <div class="section-title">
-        Policy Violations
-        <span id="violations-count"></span>
-      </div>
-      <div class="table-wrap">
-        <table>
-          <thead><tr>
-            <th>Time</th><th>Endpoint</th><th>Package</th><th>Version</th><th>Ecosystem</th><th>Action</th><th>Malware</th>
-          </tr></thead>
-          <tbody id="violations-tbody"><tr><td colspan="7" class="loading">Loading&#8230;</td></tr></tbody>
-        </table>
-      </div>
-    </div>
-
-    <!-- Feed Status page -->
-    <div class="page" id="page-feeds">
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
-        <div class="section-title" style="margin-bottom:0">Aikido Intel Feed Status</div>
-        <button id="btn-refresh-feeds" onclick="refreshFeeds()" style="padding:6px 14px;background:#2563eb;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:13px">Refresh Feeds</button>
-      </div>
-      <div id="feed-refresh-msg" style="margin-bottom:8px;font-size:13px;color:#6b7280"></div>
-      <div class="kpi-grid" id="feed-kpi-grid" style="grid-template-columns: repeat(2, 1fr)">
-        <div class="loading">Loading&#8230;</div>
-      </div>
-      <div style="margin-top:16px">
-        <div class="section-title">Feed URLs
-          <span style="font-size:12px;color:#6b7280;font-weight:400">Point <code>aikido_intel.base_url</code> at this server for air-gapped mode</span>
-        </div>
-        <div class="table-wrap">
-          <table>
-            <thead><tr><th>Ecosystem</th><th>URL</th><th></th><th>Description</th></tr></thead>
-            <tbody>
-              <tr>
-                <td><span class="badge badge-teal">npm</span></td>
-                <td><code id="npm-url"></code></td>
-                <td><button class="copy-btn" id="copy-npm" onclick="copyURL('npm-url','copy-npm')">Copy</button></td>
-                <td style="color:#6b7280">npm malware predictions feed</td>
-              </tr>
-              <tr>
-                <td><span class="badge badge-yellow">pypi</span></td>
-                <td><code id="pypi-url"></code></td>
-                <td><button class="copy-btn" id="copy-pypi" onclick="copyURL('pypi-url','copy-pypi')">Copy</button></td>
-                <td style="color:#6b7280">PyPI malware feed</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      </div>
-    </div>
-
-    <!-- Package Stats page -->
-    <div class="page" id="page-pkgstats">
-      <div class="section-title">Package Stats <span id="pkgstats-period"></span></div>
-      <div class="stats-grid" id="stats-grid">
-        <div class="loading" style="grid-column:span 3">Loading&#8230;</div>
-      </div>
-    </div>
-
-    <!-- Groups page -->
-    <div class="page" id="page-groups">
-      <div class="groups-split">
-        <!-- Left: group list -->
-        <div>
-          <div class="groups-header">
-            <div class="section-title">Groups</div>
-            <button class="btn btn-primary" onclick="openNewGroupModal()">+ New Group</button>
-          </div>
-          <div class="table-wrap">
-            <table>
-              <thead><tr>
-                <th>Name</th><th>Keys</th><th>Created</th><th></th>
-              </tr></thead>
-              <tbody id="groups-tbody"><tr><td colspan="4" class="loading">Loading&#8230;</td></tr></tbody>
-            </table>
-          </div>
-        </div>
-        <!-- Right: placeholder before group selected -->
-        <div id="keys-placeholder" style="display:flex;align-items:center;justify-content:center;min-height:160px;color:#9ca3af;font-size:13px;flex-direction:column;gap:8px">
-          <svg width="32" height="32" fill="none" stroke="#d1d5db" stroke-width="1.5" viewBox="0 0 24 24"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
-          <span>Chọn một group để quản lý API Keys</span>
-        </div>
-        <!-- Right: keys for selected group -->
-        <div id="keys-panel" style="display:none">
-          <div class="groups-header">
-            <div class="section-title">API Keys — <span id="keys-panel-group-name" style="color:#0D9488"></span></div>
-            <button class="btn btn-primary" onclick="openNewKeyModal()">+ New Key</button>
-          </div>
-          <div class="table-wrap">
-            <table>
-              <thead><tr>
-                <th>Name</th><th>Prefix</th><th>Created</th><th></th>
-              </tr></thead>
-              <tbody id="keys-tbody"><tr><td colspan="4" class="loading">Loading&#8230;</td></tr></tbody>
-            </table>
-          </div>
-          <p style="font-size:11px;color:#9ca3af;margin-top:8px">Keys được hash trên server. Plaintext chỉ hiển thị đúng 1 lần khi tạo.</p>
-        </div>
-      </div>
-    </div>
-  </div>
+  <div class="alert-bar" id="alert-bar"></div>
+  <div class="content" id="content"><div class="empty"><span class="spin">&#8635;</span> Loading&#8230;</div></div>
 </div>
 
-<!-- New Group modal -->
-<div class="modal-overlay hidden" id="modal-new-group" onclick="if(event.target===this)closeModal('modal-new-group')">
-  <div class="modal">
-    <h2>Create Group</h2>
-    <label for="new-group-name">Group name</label>
-    <input type="text" id="new-group-name" placeholder="e.g. Acme Corp" />
-    <div id="new-group-error" style="color:#dc2626;font-size:12px;margin-top:6px;display:none"></div>
-    <div class="modal-actions">
-      <button class="btn btn-ghost" onclick="closeModal('modal-new-group')">Cancel</button>
-      <button class="btn btn-primary" id="btn-create-group" onclick="createGroup()">Create</button>
-    </div>
-  </div>
+<div class="overlay" id="modal" style="display:none" onclick="if(event.target===this)closeModal()">
+  <div class="modal" id="modal-body" onclick="event.stopPropagation()"></div>
 </div>
 
-<!-- New Key modal -->
-<div class="modal-overlay hidden" id="modal-new-key" onclick="if(event.target===this)closeModal('modal-new-key')">
-  <div class="modal">
-    <h2>Create API Key</h2>
-    <label for="new-key-name">Key name</label>
-    <input type="text" id="new-key-name" placeholder="e.g. Team Helpdesk" />
-    <div id="new-key-error" style="color:#dc2626;font-size:12px;margin-top:6px;display:none"></div>
-    <div id="new-key-secret" class="secret-box" style="display:none">
-      <p>&#128274; Copy this key now — it will not be shown again.</p>
-      <div class="secret-row">
-        <code id="new-key-secret-text"></code>
-        <button class="copy-btn" id="btn-copy-secret" onclick="copySecret()">Copy</button>
-      </div>
-    </div>
-    <div class="modal-actions">
-      <button class="btn btn-ghost" id="btn-cancel-key" onclick="closeModal('modal-new-key')">Cancel</button>
-      <button class="btn btn-primary" id="btn-create-key" onclick="createKey()">Create</button>
-    </div>
+<div class="drawer-bg" id="drawer-bg" style="display:none" onclick="closeDrawer()"></div>
+<div class="drawer" id="drawer">
+  <div class="drawer-hdr">
+    <h2 id="drawer-title">Details</h2>
+    <button class="icon-btn" onclick="closeDrawer()">&#x2715;</button>
   </div>
+  <div class="drawer-body" id="drawer-body"></div>
 </div>
 
 <script>
-let currentPeriod = 30;
-let currentPage = 'dashboard';
-let allEvents = [];
-let filterTimer = null;
-let autoRefreshOn = true;
-let arCountdown = 30;
-let arTimer = null;
+/* ---- STATE ---- */
+var S={page:'dashboard',group:'',days:30,from:'',to:'',useRange:false,evOffset:0,evFilter:{type:'',action:'',malware:''},pkgTab:0,dark:localStorage.dark==='1',groups:[],config:null};
 
-const PAGE_TITLES = {
-  dashboard: 'Dashboard',
-  events:    'Events',
-  endpoints: 'Endpoints',
-  feeds:     'Feed Status',
-  malicious: 'Malicious Packages',
-  violations:'Policy Violations',
-  pkgstats:  'Package Stats',
-  groups:    'Groups',
-};
-
-// ── Navigation ──────────────────────────────────────────────────────────────
-
-function navigate(page) {
-  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
-  document.getElementById('page-' + page).classList.add('active');
-  document.querySelectorAll('.nav-item').forEach(n => {
-    n.classList.toggle('active', n.dataset.page === page);
-  });
-  document.getElementById('page-title').textContent = PAGE_TITLES[page] || page;
-  currentPage = page;
-  loadPage();
-}
-
-function setPeriod(days) {
-  currentPeriod = days;
-  document.querySelectorAll('.period-btn').forEach((b, i) => {
-    b.classList.toggle('active', [7, 30, 0][i] === days);
-  });
-  loadPage();
-}
-
-function loadPage() {
-  const p = currentPage;
-  if (p === 'dashboard')   loadDashboard();
-  else if (p === 'events')     loadEvents();
-  else if (p === 'endpoints')  loadEndpoints();
-  else if (p === 'feeds')      loadFeeds();
-  else if (p === 'malicious')  loadMalicious();
-  else if (p === 'violations') loadViolations();
-  else if (p === 'pkgstats')   loadPackageStats();
-  else if (p === 'groups')     loadGroups();
-  markUpdated();
-}
-
-function markUpdated() {
-  document.getElementById('last-updated').textContent =
-    'Updated ' + new Date().toLocaleTimeString();
-}
-
-// ── Auto-refresh ─────────────────────────────────────────────────────────────
-
-function startAR() {
-  stopAR();
-  arCountdown = 30;
-  updateARDisplay();
-  arTimer = setInterval(() => {
-    arCountdown--;
-    if (arCountdown <= 0) {
-      loadPage();
-      arCountdown = 30;
-    }
-    updateARDisplay();
-  }, 1000);
-}
-
-function stopAR() {
-  if (arTimer) clearInterval(arTimer);
-  arTimer = null;
-}
-
-function updateARDisplay() {
-  document.getElementById('refresh-countdown').textContent =
-    autoRefreshOn ? arCountdown + 's' : '';
-}
-
-function toggleAutoRefresh() {
-  autoRefreshOn = !autoRefreshOn;
-  const btn = document.getElementById('ar-btn');
-  if (autoRefreshOn) {
-    btn.classList.remove('off');
-    btn.title = 'Auto-refresh ON (click to disable)';
+document.addEventListener('DOMContentLoaded',function(){
+  applyTheme();
+  initGroups().then(function(){
+    checkAlerts();
+    loadPage();
     startAR();
-  } else {
-    btn.classList.add('off');
-    btn.title = 'Auto-refresh OFF (click to enable)';
-    stopAR();
-    document.getElementById('refresh-countdown').textContent = '';
+    checkWizard();
+  });
+});
+
+function applyTheme(){document.getElementById('H').classList.toggle('dark',S.dark);document.getElementById('dark-btn').textContent=S.dark?'☀':'🌙';}
+function toggleDark(){S.dark=!S.dark;localStorage.dark=S.dark?'1':'0';applyTheme();}
+
+async function initGroups(){
+  try{
+    S.groups=await api('/api/groups');
+    var sel=document.getElementById('group-sel');
+    S.groups.forEach(function(g){var o=document.createElement('option');o.value=g.id;o.textContent=g.name+' ('+(g.key_count||0)+')';sel.appendChild(o);});
+  }catch(e){}
+}
+function setGroup(id){S.group=id;loadPage();}
+
+function setPeriod(days){
+  S.days=days;S.useRange=false;
+  document.querySelectorAll('.period-tab').forEach(function(el){el.classList.toggle('active',parseInt(el.dataset.days)===days);});
+  document.getElementById('date-row').style.display='none';
+  loadPage();
+}
+function showDateRange(){document.querySelectorAll('.period-tab').forEach(function(el){el.classList.remove('active');});document.getElementById('date-row').style.display='flex';}
+function applyDateRange(){S.from=document.getElementById('from-date').value;S.to=document.getElementById('to-date').value;if(!S.from||!S.to)return;S.useRange=true;loadPage();}
+
+var arT,arN=30;
+function startAR(){clearInterval(arT);arN=30;arT=setInterval(function(){arN--;var el=document.getElementById('ar-cd');if(el)el.textContent=arN+'s';if(arN<=0){arN=30;loadPage();}},1000);}
+
+async function api(path){var r=await fetch(path);if(!r.ok)throw new Error(await r.text());return r.json();}
+
+function buildQ(extra){
+  extra=extra||{};
+  var p=new URLSearchParams();
+  if(S.useRange&&S.from&&S.to){p.set('from',S.from);p.set('to',S.to);}else if(S.days>0)p.set('days',S.days);
+  if(S.group)p.set('group_id',S.group);
+  Object.keys(extra).forEach(function(k){if(extra[k]!=null&&extra[k]!=='')p.set(k,String(extra[k]));});
+  return p.toString();
+}
+
+var PAGE_TITLES={dashboard:'Overview',events:'Events',endpoints:'Endpoints',packages:'Packages',cicd:'CI / CD',malware:'Malware Feed',groups:'Groups',audit:'Audit Log',settings:'Settings'};
+function nav(page){
+  S.page=page;S.evOffset=0;
+  document.querySelectorAll('.nav-item').forEach(function(el){el.classList.toggle('active',el.dataset.page===page);});
+  document.getElementById('page-title').textContent=PAGE_TITLES[page]||page;
+  loadPage();
+}
+
+async function checkAlerts(){
+  try{
+    S.config=await api('/api/config');
+    var st=await api('/api/dashboard?'+buildQ());
+    var bar=document.getElementById('alert-bar');
+    var a=S.config.alert_config||{};var msgs=[];
+    if(a.malware_any&&(st.malicious_packages||0)>0)msgs.push('⚠️ '+(st.malicious_packages)+' malware package(s) detected');
+    if(a.blocked_per_minute>0&&(st.blocked_packages||0)>a.blocked_per_minute)msgs.push('⚠️ Blocked packages ('+st.blocked_packages+') exceed threshold ('+a.blocked_per_minute+')');
+    if(msgs.length){bar.className='alert-bar danger';bar.innerHTML=msgs.join(' &nbsp;|&nbsp; ');}
+    else{bar.style.display='none';}
+  }catch(e){}
+}
+
+async function loadPage(){
+  arN=30;
+  var el=document.getElementById('content');
+  el.innerHTML='<div class="empty"><span class="spin">&#8635;</span> Loading&#8230;</div>';
+  try{
+    if(S.page==='dashboard')await renderDashboard();
+    else if(S.page==='events')await renderEvents();
+    else if(S.page==='endpoints')await renderEndpoints();
+    else if(S.page==='packages')await renderPackages();
+    else if(S.page==='cicd')await renderCICD();
+    else if(S.page==='malware')await renderMalware();
+    else if(S.page==='groups')await renderGroups();
+    else if(S.page==='audit')await renderAudit();
+    else if(S.page==='settings')await renderSettings();
+  }catch(e){document.getElementById('content').innerHTML='<div class="empty">&#9888;&#65039; '+h(e.message)+'</div>';}
+}
+
+/* ---- HELPERS ---- */
+function fmt(n){return(n||0).toLocaleString();}
+function fmtDate(s){if(!s)return'&mdash;';var d=new Date(s);return d.toLocaleString(undefined,{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'});}
+function bdg(t,c){c=c||'gray';return'<span class="badge b-'+c+'">'+h(t)+'</span>';}
+function actionBdg(a){var m={allow:'green',block:'red',suspicious:'yellow',allow_install:'teal',block_install:'red',allow_lockfile:'teal'};return bdg(a||'&mdash;',m[a]||'gray');}
+function ecoBdg(e){var m={npm:'blue',pypi:'yellow',go:'teal',cargo:'red',maven:'gray',nuget:'blue'};return bdg(e||'&mdash;',m[(e||'').toLowerCase()]||'gray');}
+function h(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+function trunc(s,n){n=n||30;return(!s)?'&mdash;':s.length>n?h(s.slice(0,n))+'&hellip;':h(s);}
+
+function computeDelta(days){
+  if(!days||days.length<4)return'';
+  var half=Math.floor(days.length/2);
+  var prev=days.slice(0,half).reduce(function(s,d){return s+d.count;},0);
+  var curr=days.slice(half).reduce(function(s,d){return s+d.count;},0);
+  if(!prev)return'';
+  var pct=Math.round((curr-prev)/prev*100);
+  var cls=pct>0?'d-up':pct<0?'d-dn':'d-ne';
+  var arrow=pct>0?'&#8593;':pct<0?'&#8595;':'&#8594;';
+  return'<div class="kpi-delta '+cls+'">'+arrow+Math.abs(pct)+'% vs prev period</div>';
+}
+
+/* ---- DASHBOARD ---- */
+async function renderDashboard(){
+  var d=await api('/api/dashboard?'+buildQ());
+  var bk=d.blocked_packages||0,ml=d.malicious_packages||0,sp=d.suspicious_packages||0;
+  document.getElementById('content').innerHTML=
+'<div class="kpi-grid">'+
+'<div class="kpi"><div class="kpi-lbl">Endpoints</div><div class="kpi-val">'+fmt(d.endpoints)+'</div></div>'+
+'<div class="kpi"><div class="kpi-lbl">Sessions</div><div class="kpi-val">'+fmt(d.sessions)+'</div>'+computeDelta(d.events_per_day)+'</div>'+
+'<div class="kpi"><div class="kpi-lbl">Packages Analyzed</div><div class="kpi-val">'+fmt(d.packages_analyzed)+'</div></div>'+
+'<div class="kpi'+(bk>0?' warn':'')+'"><div class="kpi-lbl">Blocked</div><div class="kpi-val">'+fmt(bk)+'</div></div>'+
+'<div class="kpi'+(ml>0?' danger':'')+'"><div class="kpi-lbl">Malware Detected</div><div class="kpi-val">'+fmt(ml)+'</div></div>'+
+'<div class="kpi"><div class="kpi-lbl">Suspicious</div><div class="kpi-val">'+fmt(sp)+'</div></div>'+
+'</div>'+
+'<div class="two-col">'+
+'<div class="card"><div class="card-title">Events per Day</div>'+buildChart(d.events_per_day||[])+'</div>'+
+'<div class="card"><div class="card-title">Activity Heatmap <span style="font-size:11px;color:var(--tx4);font-weight:400">last 90 days</span></div>'+buildHeatmap(d.events_per_day||[])+'</div>'+
+'</div>'+
+'<div class="two-col">'+
+'<div class="card"><div class="card-title">By Ecosystem</div>'+barList(d.by_ecosystem||{})+'</div>'+
+'<div class="card"><div class="card-title">By Outcome</div>'+barList(d.by_outcome||{},{pass:'green',block:'red',suspicious:'yellow',error:'gray'})+'</div>'+
+'</div>';
+}
+
+function buildChart(days){
+  if(!days.length)return'<div class="empty">No data</div>';
+  var max=Math.max.apply(null,days.map(function(d){return d.count;}).concat(1));
+  return'<div class="chart-bars">'+days.slice(-30).map(function(d){
+    var pct=Math.max(2,Math.round(d.count/max*100));
+    return'<div class="cb-wrap"><div class="cb" style="height:'+pct+'%" title="'+h(d.date)+': '+d.count+'"></div><div class="cb-lbl">'+h(d.date.slice(5))+'</div></div>';
+  }).join('')+'</div>';
+}
+
+function buildHeatmap(days){
+  var map={};days.forEach(function(d){map[d.date]=d.count;});
+  var vals=Object.values(map).concat(0);
+  var max=Math.max.apply(null,vals);if(!max)max=1;
+  var cells=[];
+  for(var i=89;i>=0;i--){
+    var d=new Date();d.setDate(d.getDate()-i);
+    var k=d.toISOString().slice(0,10);
+    var c=map[k]||0;
+    var l=c===0?'':c<max*.25?'l1':c<max*.5?'l2':c<max*.75?'l3':'l4';
+    cells.push('<div class="hm-cell '+l+'" title="'+k+': '+c+'"></div>');
   }
+  return'<div class="heatmap">'+cells.join('')+'</div>';
 }
 
-// ── Dashboard ────────────────────────────────────────────────────────────────
-
-async function loadDashboard() {
-  const res = await fetch('/api/dashboard?days=' + (currentPeriod || 0));
-  const stats = await res.json();
-  const events = stats.recent_events || [];
-
-  const icons = {
-    monitor:  '<svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>',
-    activity: '<svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>',
-    package:  '<svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21 16V8a2 2 0 00-1-1.73l-7-4a2 2 0 00-2 0l-7 4A2 2 0 003 8v8a2 2 0 001 1.73l7 4a2 2 0 002 0l7-4A2 2 0 0021 16z"/></svg>',
-    alert:    '<svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>',
-    block:    '<svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg>',
-    eye:      '<svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>',
-  };
-
-  const kpis = [
-    { label: 'Endpoints',           value: stats.endpoints,           icon: 'monitor',  cls: '' },
-    { label: 'Sessions',            value: stats.sessions,            icon: 'activity', cls: '' },
-    { label: 'Packages Analyzed',   value: stats.packages_analyzed,   icon: 'package',  cls: '' },
-    { label: 'Malicious Packages',  value: stats.malicious_packages,  icon: 'alert',    cls: stats.malicious_packages  > 0 ? 'danger'  : '' },
-    { label: 'Blocked Packages',    value: stats.blocked_packages,    icon: 'block',    cls: stats.blocked_packages    > 0 ? 'warning' : '' },
-    { label: 'Suspicious Packages', value: stats.suspicious_packages, icon: 'eye',      cls: stats.suspicious_packages > 0 ? 'warning' : '' },
-  ];
-
-  document.getElementById('kpi-grid').innerHTML = kpis.map(k => `
-    <div class="kpi-card ${k.cls}">
-      <div class="kpi-label">${icons[k.icon]} ${k.label}</div>
-      <div class="kpi-value">${k.value != null ? k.value.toLocaleString() : 0}</div>
-    </div>`).join('');
-
-  // chart
-  const epd = stats.events_per_day || [];
-  const chartCard = document.getElementById('chart-card');
-  if (epd.length > 0) {
-    chartCard.style.display = '';
-    const maxCount = Math.max(...epd.map(d => d.count), 1);
-    document.getElementById('chart-bars').innerHTML = epd.map(d => {
-      const h = Math.max(Math.round(d.count / maxCount * 62), d.count > 0 ? 2 : 0);
-      return `<div class="chart-bar-wrap" title="${d.date}: ${d.count} events">
-        <div class="chart-bar" style="height:${h}px"></div>
-        <div class="chart-bar-label">${d.date.slice(5)}</div>
-      </div>`;
-    }).join('');
-  } else {
-    chartCard.style.display = 'none';
-  }
-
-  document.getElementById('recent-count').textContent = events.length ? `${events.length} shown` : '';
-  document.getElementById('events-tbody').innerHTML = renderEventRows(events, 6);
-}
-
-// ── Events ───────────────────────────────────────────────────────────────────
-
-async function loadEvents() {
-  const res = await fetch('/api/events?days=' + (currentPeriod || 0) + '&limit=500');
-  allEvents = await res.json() || [];
-  applyFilter();
-}
-
-function scheduleFilter() {
-  clearTimeout(filterTimer);
-  filterTimer = setTimeout(applyFilter, 200);
-}
-
-function applyFilter() {
-  const search = (document.getElementById('ev-search')?.value || '').toLowerCase();
-  const eco    = document.getElementById('ev-eco')?.value    || '';
-  const action = document.getElementById('ev-action')?.value || '';
-  const malware= document.getElementById('ev-malware')?.value|| '';
-
-  let filtered = allEvents;
-  if (search)  filtered = filtered.filter(ev => (ev.package_name || '').toLowerCase().includes(search));
-  if (eco)     filtered = filtered.filter(ev => ev.ecosystem === eco);
-  if (action)  filtered = filtered.filter(ev => ev.action === action);
-  if (malware !== '') {
-    const want = malware === 'true';
-    filtered = filtered.filter(ev => ev.is_malware === want);
-  }
-
-  const total = allEvents.length;
-  const shown = filtered.length;
-  document.getElementById('events-page-count').textContent =
-    shown === total ? `${total} events` : `${shown} of ${total}`;
-  document.getElementById('events-page-tbody').innerHTML = renderEventRows(filtered, 9);
-}
-
-// ── Malicious ────────────────────────────────────────────────────────────────
-
-async function loadMalicious() {
-  const res = await fetch('/api/events?malware=true&limit=500&days=' + (currentPeriod || 0));
-  const events = await res.json();
-  document.getElementById('malicious-count').textContent = events ? `${events.length} found` : '';
-  if (!events || events.length === 0) {
-    document.getElementById('malicious-tbody').innerHTML =
-      '<tr><td colspan="6" class="empty">No malicious packages detected in this period</td></tr>';
-    return;
-  }
-  document.getElementById('malicious-tbody').innerHTML = events.map(ev => `
-    <tr>
-      <td style="white-space:nowrap;color:#6b7280;font-size:12px">${fmtTime(ev.received_at)}</td>
-      <td>${ev.endpoint_id     || '&mdash;'}</td>
-      <td style="font-weight:600;color:#dc2626">${ev.package_name    || '&mdash;'}</td>
-      <td>${ev.package_version || '&mdash;'}</td>
-      <td>${ev.ecosystem       || '&mdash;'}</td>
-      <td>${actionBadge(ev.action)}</td>
-    </tr>`).join('');
-}
-
-// ── Violations ───────────────────────────────────────────────────────────────
-
-async function loadViolations() {
-  const res = await fetch('/api/events?action=BLOCKED,COOLDOWN_BLOCKED&limit=500&days=' + (currentPeriod || 0));
-  const events = await res.json();
-  document.getElementById('violations-count').textContent = events ? `${events.length} found` : '';
-  if (!events || events.length === 0) {
-    document.getElementById('violations-tbody').innerHTML =
-      '<tr><td colspan="7" class="empty">No policy violations in this period</td></tr>';
-    return;
-  }
-  document.getElementById('violations-tbody').innerHTML = events.map(ev => `
-    <tr>
-      <td style="white-space:nowrap;color:#6b7280;font-size:12px">${fmtTime(ev.received_at)}</td>
-      <td>${ev.endpoint_id     || '&mdash;'}</td>
-      <td style="font-weight:500">${ev.package_name    || '&mdash;'}</td>
-      <td>${ev.package_version || '&mdash;'}</td>
-      <td>${ev.ecosystem       || '&mdash;'}</td>
-      <td>${actionBadge(ev.action)}</td>
-      <td>${malwareBadge(ev.is_malware)}</td>
-    </tr>`).join('');
-}
-
-// ── Endpoints ────────────────────────────────────────────────────────────────
-
-async function loadEndpoints() {
-  const res = await fetch('/api/endpoints');
-  const eps = await res.json();
-  document.getElementById('endpoints-count').textContent = eps ? `${eps.length} total` : '';
-  if (!eps || eps.length === 0) {
-    document.getElementById('endpoints-tbody').innerHTML =
-      '<tr><td colspan="9" class="empty">No endpoints yet</td></tr>';
-    return;
-  }
-  document.getElementById('endpoints-tbody').innerHTML = eps.map(ep => {
-    const machineShort = ep.machine_id ? ep.machine_id.slice(0, 12) + '…' : '';
-    const osArch = [ep.os, ep.arch].filter(Boolean).join(' / ');
-    const version = ep.tool_version
-      ? `<span style="font-family:monospace;font-size:11px;color:#6b7280">${ep.tool_version.replace(/\+.*$/, '')}</span>`
-      : '&mdash;';
-    const pms = (ep.package_managers || []).map(pm =>
-      `<span class="badge badge-teal" style="font-size:10px;margin:1px">${pm}</span>`).join('') || '&mdash;';
-    const flows = (ep.flow_types || []).map(ft =>
-      `<span class="badge badge-gray" style="font-size:10px;margin:1px">${ft}</span>`).join('');
-    const modeBadge = (val, label, on, off) => val === true
-      ? `<span class="badge badge-green" style="font-size:10px;margin:1px" title="${label}">${on}</span>`
-      : val === false
-      ? `<span class="badge badge-gray"  style="font-size:10px;margin:1px;opacity:.5" title="${label}">${off}</span>`
-      : '';
-    const modes = [
-      modeBadge(ep.sandbox_enabled,    'Sandbox',    'SBX', 'sbx'),
-      modeBadge(ep.paranoid_mode,      'Paranoid',   'PRN', 'prn'),
-      modeBadge(ep.transitive_enabled, 'Transitive', 'TRN', 'trn'),
-    ].join('') || '&mdash;';
-
-    return `<tr>
-      <td>
-        <div style="font-weight:500;font-size:13px">${ep.endpoint_id || '&mdash;'}</div>
-        ${machineShort ? `<div style="font-size:10px;color:#9ca3af;font-family:monospace">${machineShort}</div>` : ''}
-      </td>
-      <td>
-        <div>${ep.hostname || '&mdash;'}</div>
-        ${osArch ? `<div style="font-size:11px;color:#9ca3af">${osArch}</div>` : ''}
-      </td>
-      <td>${version}</td>
-      <td>${pms}${flows ? `<div style="margin-top:2px">${flows}</div>` : ''}</td>
-      <td style="text-align:right">${ep.sessions || 0}</td>
-      <td style="text-align:right">${(ep.total_packages || 0).toLocaleString()}</td>
-      <td style="text-align:right;color:${(ep.blocked_packages||0)>0?'#dc2626':'#374151'}">${(ep.blocked_packages || 0).toLocaleString()}</td>
-      <td style="white-space:nowrap">${modes}</td>
-      <td style="font-size:12px;color:#6b7280;white-space:nowrap">${ep.last_seen ? new Date(ep.last_seen).toLocaleString() : '&mdash;'}</td>
-    </tr>`;
+function barList(obj,colorMap){
+  colorMap=colorMap||{};
+  var entries=Object.entries(obj).sort(function(a,b){return b[1]-a[1];});
+  if(!entries.length)return'<div class="empty">No data</div>';
+  var mx=Math.max.apply(null,entries.map(function(e){return e[1];}).concat(1));
+  return entries.map(function(e){
+    return'<div class="flex" style="margin-bottom:7px">'+bdg(e[0],colorMap[(e[0]||'').toLowerCase()]||'gray')+
+    '<div class="bar-wrap" style="margin:0 8px"><div class="bar-fill" style="width:'+Math.round(e[1]/mx*100)+'%"></div></div>'+
+    '<span style="font-size:13px;font-weight:600;min-width:36px;text-align:right">'+fmt(e[1])+'</span></div>';
   }).join('');
 }
 
-// ── Feed Status ───────────────────────────────────────────────────────────────
+/* ---- EVENTS ---- */
+async function renderEvents(){
+  var limit=50;
+  var extra={limit:limit,offset:S.evOffset};
+  var f=S.evFilter;
+  if(f.type)extra.event_type=f.type;
+  if(f.action)extra.action=f.action;
+  if(f.malware)extra.malware=f.malware;
+  var events=await api('/api/events?'+buildQ(extra));
+  var csvExtra=Object.assign({},extra,{format:'csv',offset:0,limit:10000});
+  var csvUrl='/api/events?'+buildQ(csvExtra);
 
-async function loadFeeds() {
-  const origin = window.location.origin;
-  document.getElementById('npm-url').textContent  = origin + '/malware_predictions.json';
-  document.getElementById('pypi-url').textContent = origin + '/malware_pypi.json';
+  document.getElementById('content').innerHTML=
+'<div class="sec-title">Events <small>'+events.length+' shown</small>'+
+'<a href="'+csvUrl+'" download="events.csv" class="btn btn-sm btn-ghost">&#8681; CSV</a></div>'+
+'<div class="filter-bar">'+
+'<select onchange="S.evFilter.type=this.value;S.evOffset=0;loadPage()">'+
+'<option value="">All types</option>'+
+'<option value="package_decision"'+(f.type==='package_decision'?' selected':'')+'>package_decision</option>'+
+'<option value="session_summary"'+(f.type==='session_summary'?' selected':'')+'>session_summary</option>'+
+'</select>'+
+'<select onchange="S.evFilter.action=this.value;S.evOffset=0;loadPage()">'+
+'<option value="">All actions</option>'+
+'<option value="allow"'+(f.action==='allow'?' selected':'')+'>allow</option>'+
+'<option value="block"'+(f.action==='block'?' selected':'')+'>block</option>'+
+'<option value="suspicious"'+(f.action==='suspicious'?' selected':'')+'>suspicious</option>'+
+'</select>'+
+'<select onchange="S.evFilter.malware=this.value;S.evOffset=0;loadPage()">'+
+'<option value="">Any</option>'+
+'<option value="true"'+(f.malware==='true'?' selected':'')+'>Malware only</option>'+
+'<option value="false"'+(f.malware==='false'?' selected':'')+'>Non-malware</option>'+
+'</select>'+
+'<button class="btn btn-sm btn-ghost" onclick="S.evFilter={type:\'\',action:\'\',malware:\'\'};S.evOffset=0;loadPage()">Clear</button>'+
+'</div>'+
+'<div class="tbl-wrap"><table>'+
+'<thead><tr><th>Time</th><th>Type</th><th>Ecosystem</th><th>Package</th><th>Version</th><th>Action</th><th>Endpoint</th></tr></thead>'+
+'<tbody>'+(events.length?events.map(function(ev){
+  return'<tr><td style="white-space:nowrap;font-size:12px">'+fmtDate(ev.received_at)+'</td>'+
+  '<td>'+bdg(ev.event_type||'&mdash;','gray')+'</td>'+
+  '<td>'+ecoBdg(ev.ecosystem)+'</td>'+
+  '<td class="trunc" title="'+h(ev.package_name)+'">'+h(ev.package_name||'&mdash;')+'</td>'+
+  '<td style="font-size:12px;color:var(--tx3)">'+h(ev.package_version||'&mdash;')+'</td>'+
+  '<td>'+actionBdg(ev.action)+'</td>'+
+  '<td class="trunc" style="font-size:11px;color:var(--tx4)">'+trunc(ev.endpoint_id,18)+'</td></tr>';
+}).join(''):'<tr><td colspan="7" class="empty">No events</td></tr>')+
+'</tbody></table></div>'+
+'<div class="pager">'+
+'<button class="btn btn-sm btn-ghost" onclick="evPrev()"'+(S.evOffset===0?' disabled':'')+'>&#8592; Prev</button>'+
+'<span class="info">Showing '+(S.evOffset+1)+'&ndash;'+(S.evOffset+events.length)+'</span>'+
+'<button class="btn btn-sm btn-ghost" onclick="evNext()"'+(events.length<limit?' disabled':'')+'>Next &#8594;</button>'+
+'</div>';
+}
+function evPrev(){S.evOffset=Math.max(0,S.evOffset-50);loadPage();}
+function evNext(){S.evOffset+=50;loadPage();}
 
-  let status;
-  try {
-    const res = await fetch('/api/malware/status');
-    status = await res.json();
-  } catch (e) {
-    document.getElementById('feed-kpi-grid').innerHTML =
-      `<div class="empty" style="grid-column:span 2">Failed to load feed status: ${e.message}</div>`;
-    return;
-  }
-
-  const feeds = [
-    { label: 'npm Feed',  eco: 'npm',  data: status.npm },
-    { label: 'PyPI Feed', eco: 'pypi', data: status.pypi },
-  ];
-
-  document.getElementById('feed-kpi-grid').innerHTML = feeds.map(f => {
-    const s = f.data || {};
-    const updated = s.last_updated ? new Date(s.last_updated).toLocaleString() : 'Never';
-    const bytes   = s.bytes ? (s.bytes / 1024).toFixed(1) + ' KB' : '0 KB';
-    const entries = s.entry_count ? s.entry_count.toLocaleString() + ' entries' : '';
-    const badge   = s.ok
-      ? '<span class="badge badge-green">OK</span>'
-      : '<span class="badge badge-red">ERROR</span>';
-    return `
-      <div class="kpi-card ${s.ok ? '' : 'danger'}" style="min-height:unset">
-        <div class="kpi-label">
-          <span class="badge ${f.eco === 'npm' ? 'badge-teal' : 'badge-yellow'}" style="font-size:12px">${f.eco}</span>
-          ${f.label}
-        </div>
-        <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
-          ${badge}
-          ${s.error ? `<span style="font-size:12px;color:#dc2626">${s.error}</span>` : ''}
-        </div>
-        <div style="font-size:12px;color:#6b7280;line-height:1.9">
-          <div>Last updated: <strong style="color:#374151">${updated}</strong></div>
-          <div>Feed size: <strong style="color:#374151">${bytes}</strong>
-            ${entries ? `<span style="color:#9ca3af;margin-left:6px">${entries}</span>` : ''}
-          </div>
-        </div>
-      </div>`;
-  }).join('');
+/* ---- ENDPOINTS ---- */
+var epList=[];
+async function renderEndpoints(){
+  epList=await api('/api/endpoints?'+buildQ());
+  var csvUrl='/api/endpoints?'+buildQ({format:'csv'});
+  document.getElementById('content').innerHTML=
+'<div class="sec-title">Endpoints <small>'+epList.length+' total</small>'+
+'<a href="'+csvUrl+'" download="endpoints.csv" class="btn btn-sm btn-ghost">&#8681; CSV</a></div>'+
+'<div class="tbl-wrap"><table>'+
+'<thead><tr><th>Endpoint ID</th><th>Hostname</th><th>OS</th><th>PMG Version</th><th>Sessions</th><th>Packages</th><th>Blocked</th><th>Last Seen</th></tr></thead>'+
+'<tbody>'+(epList.length?epList.map(function(ep,i){
+  return'<tr class="clickable" onclick="openEpDrawer('+i+')">'+
+  '<td class="trunc mono" title="'+h(ep.endpoint_id)+'" style="font-size:11px">'+trunc(ep.endpoint_id,18)+'</td>'+
+  '<td>'+h(ep.hostname||'&mdash;')+'</td>'+
+  '<td>'+bdg(ep.os||'&mdash;','gray')+'</td>'+
+  '<td>'+h(ep.tool_version||'&mdash;')+'</td>'+
+  '<td>'+fmt(ep.sessions)+'</td>'+
+  '<td>'+fmt(ep.total_packages)+'</td>'+
+  '<td>'+((ep.blocked_packages||0)>0?bdg(fmt(ep.blocked_packages),'red'):'0')+'</td>'+
+  '<td style="font-size:12px;color:var(--tx3)">'+fmtDate(ep.last_seen)+'</td></tr>';
+}).join(''):'<tr><td colspan="8" class="empty">No endpoints</td></tr>')+
+'</tbody></table></div>'+versionCompliance(epList);
 }
 
-async function refreshFeeds() {
-  const btn = document.getElementById('btn-refresh-feeds');
-  const msg = document.getElementById('feed-refresh-msg');
-  btn.disabled = true;
-  btn.textContent = 'Refreshing…';
-  msg.textContent = '';
-  try {
-    const res = await fetch('/api/malware/refresh', { method: 'POST' });
-    if (!res.ok) {
-      msg.style.color = '#dc2626';
-      msg.textContent = 'Error: ' + (await res.text()).trim();
-    } else {
-      msg.style.color = '#16a34a';
-      msg.textContent = 'Feeds refreshed successfully.';
-      await loadFeeds();
-    }
-  } catch (e) {
-    msg.style.color = '#dc2626';
-    msg.textContent = 'Error: ' + e.message;
-  } finally {
-    btn.disabled = false;
-    btn.textContent = 'Refresh Feeds';
-  }
+function versionCompliance(eps){
+  if(!eps.length)return'';
+  var vc={};
+  eps.forEach(function(ep){var v=ep.tool_version||'unknown';vc[v]=(vc[v]||0)+1;});
+  var knownVers=Object.keys(vc).filter(function(v){return v!=='unknown';}).sort();
+  var latest=knownVers.length?knownVers[knownVers.length-1]:'unknown';
+  var outdated=eps.filter(function(ep){return(ep.tool_version||'unknown')!==latest;}).length;
+  return'<div class="card"><div class="card-title">PMG Version Compliance '+
+  (outdated>0?bdg(outdated+' outdated','red'):bdg('All up-to-date','green'))+'</div>'+
+  '<p style="font-size:13px;color:var(--tx3);margin-bottom:12px">Latest detected: <strong>'+h(latest)+'</strong></p>'+
+  '<div class="tbl-wrap"><table><thead><tr><th>Version</th><th>Endpoints</th><th>Status</th></tr></thead><tbody>'+
+  Object.keys(vc).sort().map(function(v){
+    return'<tr><td class="mono">'+h(v)+'</td><td>'+vc[v]+'</td><td>'+(v===latest?bdg('Latest','green'):bdg('Outdated','yellow'))+'</td></tr>';
+  }).join('')+'</tbody></table></div></div>';
 }
 
-function copyURL(srcId, btnId) {
-  const text = document.getElementById(srcId).textContent;
-  const btn  = document.getElementById(btnId);
-  navigator.clipboard.writeText(text).then(() => {
-    btn.textContent = 'Copied!';
-    btn.classList.add('copied');
-    setTimeout(() => { btn.textContent = 'Copy'; btn.classList.remove('copied'); }, 1500);
-  }).catch(() => {
-    // fallback for non-HTTPS
-    const ta = document.createElement('textarea');
-    ta.value = text;
-    document.body.appendChild(ta);
-    ta.select();
-    document.execCommand('copy');
-    document.body.removeChild(ta);
-    btn.textContent = 'Copied!';
-    btn.classList.add('copied');
-    setTimeout(() => { btn.textContent = 'Copy'; btn.classList.remove('copied'); }, 1500);
+function openEpDrawer(i){
+  var ep=epList[i];if(!ep)return;
+  document.getElementById('drawer-title').textContent=ep.hostname||ep.endpoint_id;
+  document.getElementById('drawer-body').innerHTML='<div class="empty"><span class="spin">&#8635;</span> Loading&#8230;</div>';
+  document.getElementById('drawer-bg').style.display='block';
+  setTimeout(function(){document.getElementById('drawer').classList.add('open');},10);
+  api('/api/endpoints/'+encodeURIComponent(ep.endpoint_id)+'/events').then(function(evs){
+    document.getElementById('drawer-body').innerHTML=
+'<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px;font-size:13px">'+
+'<div><div class="lbl">Endpoint ID</div><div class="mono" style="font-size:10px;word-break:break-all">'+h(ep.endpoint_id)+'</div></div>'+
+'<div><div class="lbl">Machine ID</div><div class="mono" style="font-size:11px">'+h(ep.machine_id||'&mdash;')+'</div></div>'+
+'<div><div class="lbl">OS / Arch</div><div>'+h(ep.os||'&mdash;')+' / '+h(ep.arch||'&mdash;')+'</div></div>'+
+'<div><div class="lbl">PMG Version</div><div>'+h(ep.tool_version||'&mdash;')+'</div></div>'+
+'<div><div class="lbl">Sessions</div><div>'+fmt(ep.sessions)+'</div></div>'+
+'<div><div class="lbl">Last Seen</div><div style="font-size:12px">'+fmtDate(ep.last_seen)+'</div></div>'+
+'<div><div class="lbl">Total Packages</div><div>'+fmt(ep.total_packages)+'</div></div>'+
+'<div><div class="lbl">Blocked</div><div>'+((ep.blocked_packages||0)>0?bdg(fmt(ep.blocked_packages),'red'):bdg('0','green'))+'</div></div>'+
+'</div><hr>'+
+'<div style="font-size:13px;font-weight:600;margin-bottom:10px">Recent Events ('+evs.length+')</div>'+
+'<div style="overflow-y:auto;max-height:380px">'+(evs.length?evs.map(function(ev){
+  return'<div style="padding:8px 0;border-bottom:1px solid var(--bd);font-size:12px">'+
+  '<div class="flex" style="margin-bottom:3px">'+actionBdg(ev.action)+' '+ecoBdg(ev.ecosystem)+
+  ' <span style="color:var(--tx4)">'+fmtDate(ev.received_at)+'</span></div>'+
+  '<div style="color:var(--tx2)">'+h(ev.package_name||'&mdash;')+(ev.package_version?' <span style="color:var(--tx4)">v'+h(ev.package_version)+'</span>':'')+'</div></div>';
+}).join(''):'<div class="empty">No events</div>')+'</div>';
+  }).catch(function(e){document.getElementById('drawer-body').innerHTML='<div class="empty">Error: '+h(e.message)+'</div>';});
+}
+function closeDrawer(){document.getElementById('drawer').classList.remove('open');document.getElementById('drawer-bg').style.display='none';}
+
+/* ---- PACKAGES ---- */
+var _pkgs=[];
+async function renderPackages(){
+  var ps=await api('/api/package-stats?'+buildQ());
+  document.getElementById('content').innerHTML=
+'<div class="tabs">'+
+'<button class="tab'+(S.pkgTab===0?' active':'')+'" onclick="S.pkgTab=0;renderPackages()">Top Packages</button>'+
+'<button class="tab'+(S.pkgTab===1?' active':'')+'" onclick="S.pkgTab=1;renderPackages()">Risk Leaderboard</button>'+
+'<button class="tab'+(S.pkgTab===2?' active':'')+'" onclick="S.pkgTab=2;renderPackages()">Ecosystems</button>'+
+'</div><div id="pkg-inner"></div>';
+  if(S.pkgTab===0)renderTopPkgs(ps.top_packages||[]);
+  else if(S.pkgTab===1)renderRisk(ps.top_packages||[]);
+  else renderEco(ps.top_ecosystems||[]);
+}
+
+function renderTopPkgs(pkgs){
+  _pkgs=pkgs;
+  document.getElementById('pkg-inner').innerHTML=
+'<div class="tbl-wrap"><table><thead><tr><th>Package</th><th>Ecosystem</th><th>Installs</th><th>Blocked</th></tr></thead><tbody>'+
+(pkgs.length?pkgs.map(function(p,i){
+  return'<tr class="clickable" onclick="openPkgModal('+i+')">'+
+  '<td><strong>'+h(p.name)+'</strong></td><td>'+ecoBdg(p.ecosystem)+'</td>'+
+  '<td>'+fmt(p.count)+'</td><td>'+((p.blocked_count||0)>0?bdg(fmt(p.blocked_count),'red'):'0')+'</td></tr>';
+}).join(''):'<tr><td colspan="4" class="empty">No data</td></tr>')+
+'</tbody></table></div>';
+}
+
+function renderRisk(pkgs){
+  var sorted=pkgs.filter(function(p){return p.count>0;}).map(function(p){
+    return Object.assign({},p,{risk:Math.round((p.blocked_count||0)/p.count*100)});
+  }).sort(function(a,b){return b.risk-a.risk;});
+  _pkgs=sorted;
+  document.getElementById('pkg-inner').innerHTML=
+'<div class="tbl-wrap"><table><thead><tr><th>Package</th><th>Ecosystem</th><th>Block Rate</th><th>Blocked</th><th>Total</th></tr></thead><tbody>'+
+(sorted.length?sorted.map(function(p,i){
+  var riskColor=p.risk>50?'var(--dn)':p.risk>20?'var(--wn)':'var(--pr)';
+  return'<tr class="clickable" onclick="openPkgModal('+i+')">'+
+  '<td><strong>'+h(p.name)+'</strong></td><td>'+ecoBdg(p.ecosystem)+'</td>'+
+  '<td><div class="flex" style="gap:6px;min-width:80px">'+
+  '<div class="bar-wrap"><div class="bar-fill" style="width:'+p.risk+'%;background:'+riskColor+'"></div></div>'+
+  '<span style="font-size:12px;font-weight:600;color:'+riskColor+'">'+p.risk+'%</span></div></td>'+
+  '<td>'+bdg(fmt(p.blocked_count||0),'red')+'</td><td>'+fmt(p.count)+'</td></tr>';
+}).join(''):'<tr><td colspan="5" class="empty">No data</td></tr>')+
+'</tbody></table></div>';
+}
+
+function renderEco(eco){
+  document.getElementById('pkg-inner').innerHTML=
+'<div class="tbl-wrap"><table><thead><tr><th>Ecosystem</th><th>Installs</th></tr></thead><tbody>'+
+(eco.length?eco.map(function(e){return'<tr><td>'+ecoBdg(e.ecosystem||e.name)+'</td><td>'+fmt(e.count)+'</td></tr>';}).join(''):'<tr><td colspan="2" class="empty">No data</td></tr>')+
+'</tbody></table></div>';
+}
+
+function openPkgModal(i){
+  var p=_pkgs[i];if(!p)return;
+  document.getElementById('modal-body').innerHTML=
+'<div class="modal-title"><span>'+h(p.name)+' '+ecoBdg(p.ecosystem)+'</span><button class="icon-btn" onclick="closeModal()">&#x2715;</button></div>'+
+'<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:14px">'+
+'<div class="kpi"><div class="kpi-lbl">Total Installs</div><div class="kpi-val" style="font-size:22px">'+fmt(p.count)+'</div></div>'+
+'<div class="kpi'+((p.blocked_count||0)>0?' danger':'')+'"><div class="kpi-lbl">Blocked</div><div class="kpi-val" style="font-size:22px">'+fmt(p.blocked_count||0)+'</div></div>'+
+'<div class="kpi"><div class="kpi-lbl">Block Rate</div><div class="kpi-val" style="font-size:22px">'+(p.count>0?Math.round((p.blocked_count||0)/p.count*100):0)+'%</div></div>'+
+'</div><div id="pkg-evts"><div class="empty"><span class="spin">&#8635;</span></div></div>';
+  document.getElementById('modal').style.display='flex';
+  var q=new URLSearchParams({days:'90',limit:'100'});
+  if(S.group)q.set('group_id',S.group);
+  api('/api/events?'+q.toString()).then(function(evs){
+    var fl=evs.filter(function(e){return e.package_name===p.name;});
+    document.getElementById('pkg-evts').innerHTML=
+'<div style="font-size:13px;font-weight:600;margin-bottom:8px">Recent Events ('+fl.length+')</div>'+
+'<div class="tbl-wrap" style="max-height:280px;overflow-y:auto"><table>'+
+'<thead><tr><th>Time</th><th>Action</th><th>Version</th><th>Endpoint</th></tr></thead><tbody>'+
+(fl.length?fl.map(function(e){
+  return'<tr><td style="font-size:12px">'+fmtDate(e.received_at)+'</td>'+
+  '<td>'+actionBdg(e.action)+'</td>'+
+  '<td class="mono">'+h(e.package_version||'&mdash;')+'</td>'+
+  '<td class="trunc" style="font-size:11px">'+trunc(e.endpoint_id,20)+'</td></tr>';
+}).join(''):'<tr><td colspan="4" class="empty">No events</td></tr>')+
+'</tbody></table></div>';
+  }).catch(function(){});
+}
+
+/* ---- CI/CD ---- */
+async function renderCICD(){
+  var ci=await api('/api/ci-stats?'+buildQ());
+  var repos=ci.top_repositories||[];
+  var branches=ci.top_branches||[];
+  var providers=ci.by_provider||[];
+  document.getElementById('content').innerHTML=
+'<div class="kpi-grid">'+
+'<div class="kpi"><div class="kpi-lbl">CI Events</div><div class="kpi-val">'+fmt(ci.total_ci_events||0)+'</div></div>'+
+'<div class="kpi"><div class="kpi-lbl">Repositories</div><div class="kpi-val">'+fmt(repos.length)+'</div></div>'+
+'<div class="kpi"><div class="kpi-lbl">Branches</div><div class="kpi-val">'+fmt(branches.length)+'</div></div>'+
+'<div class="kpi"><div class="kpi-lbl">Providers</div><div class="kpi-val">'+fmt(providers.length)+'</div></div>'+
+'</div>'+
+'<div class="two-col">'+
+'<div>'+
+'<div class="sec-title">Repositories</div>'+
+'<div class="tbl-wrap"><table><thead><tr><th>Repository</th><th>Events</th><th>Blocked</th><th>Last Seen</th></tr></thead><tbody>'+
+(repos.length?repos.map(function(r){return'<tr><td class="trunc">'+h(r.repository)+'</td><td>'+fmt(r.count)+'</td><td>'+(r.blocked>0?bdg(fmt(r.blocked),'red'):'0')+'</td><td style="font-size:12px;color:var(--tx3)">'+fmtDate(r.last_seen)+'</td></tr>';}).join(''):'<tr><td colspan="4" class="empty">No CI data</td></tr>')+
+'</tbody></table></div>'+
+'</div>'+
+'<div>'+
+'<div class="sec-title">Branches</div>'+
+'<div class="tbl-wrap"><table><thead><tr><th>Branch</th><th>Repo</th><th>Events</th></tr></thead><tbody>'+
+(branches.length?branches.map(function(b){return'<tr><td>'+h(b.branch)+'</td><td class="trunc" style="font-size:12px;color:var(--tx3)">'+h(b.repository)+'</td><td>'+fmt(b.count)+'</td></tr>';}).join(''):'<tr><td colspan="3" class="empty">No CI data</td></tr>')+
+'</tbody></table></div>'+
+'</div>'+
+'</div>'+
+'<div class="sec-title">Providers</div>'+
+'<div class="tbl-wrap"><table><thead><tr><th>Provider</th><th>Events</th><th>Blocked</th></tr></thead><tbody>'+
+(providers.length?providers.map(function(p){return'<tr><td>'+bdg(p.provider||'unknown','blue')+'</td><td>'+fmt(p.count)+'</td><td>'+(p.blocked>0?bdg(fmt(p.blocked),'red'):'0')+'</td></tr>';}).join(''):'<tr><td colspan="3" class="empty">No CI provider data</td></tr>')+
+'</tbody></table></div>';
+}
+
+/* ---- MALWARE ---- */
+async function renderMalware(){
+  var st=await api('/api/malware/status');
+  var npm=st.npm||{};var pypi=st.pypi||{};
+  document.getElementById('content').innerHTML=
+'<div class="kpi-grid">'+
+'<div class="kpi'+(!npm.ok?' danger':'')+'"><div class="kpi-lbl">NPM Feed</div><div class="kpi-val" style="font-size:20px">'+(npm.ok?bdg('OK','green'):bdg('ERROR','red'))+'</div><div class="kpi-delta">'+(npm.count?fmt(npm.count)+' entries':'')+'</div></div>'+
+'<div class="kpi'+(!pypi.ok?' danger':'')+'"><div class="kpi-lbl">PyPI Feed</div><div class="kpi-val" style="font-size:20px">'+(pypi.ok?bdg('OK','green'):bdg('ERROR','red'))+'</div><div class="kpi-delta">'+(pypi.count?fmt(pypi.count)+' entries':'')+'</div></div>'+
+'<div class="kpi"><div class="kpi-lbl">Last Refreshed</div><div class="kpi-val" style="font-size:15px;line-height:1.4">'+fmtDate(npm.last_refreshed)+'</div></div>'+
+'</div>'+
+'<div class="card">'+
+'<div class="card-title">Aikido Malware Intelligence</div>'+
+'<p style="font-size:13px;color:var(--tx3);margin-bottom:14px">PMG Cloud mirrors the Aikido malware feed for offline and air-gapped environments. Feed endpoints: <code>/malware_predictions.json</code> and <code>/malware_pypi.json</code>.</p>'+
+'<button class="btn btn-primary" id="refresh-feed-btn" onclick="refreshFeed(this)">&#8635; Refresh Feed Now</button>'+
+'</div>';
+}
+
+async function refreshFeed(btn){
+  btn.disabled=true;btn.textContent='Refreshing…';
+  try{var r=await fetch('/api/malware/refresh',{method:'POST'});if(!r.ok)throw new Error(await r.text());await renderMalware();}
+  catch(e){alert('Refresh failed: '+e.message);btn.disabled=false;btn.textContent='↻ Refresh Feed Now';}
+}
+
+/* ---- GROUPS ---- */
+var grpList=[];
+async function renderGroups(){
+  grpList=await api('/api/groups');
+  var out='<div class="sec-title">Groups <small>'+grpList.length+' total</small>'+
+  '<button class="btn btn-primary btn-sm" onclick="openCreateGroup()">+ New Group</button></div>';
+  if(!grpList.length)out+='<div class="empty">No groups yet. Create your first group to manage API keys.</div>';
+  grpList.forEach(function(g,i){
+    out+='<div class="card" style="margin-bottom:14px">'+
+    '<div class="flex" style="justify-content:space-between;margin-bottom:10px">'+
+    '<div class="flex"><strong style="font-size:15px">'+h(g.name)+'</strong>'+bdg((g.key_count||0)+' key'+(g.key_count!==1?'s':''),'gray')+'</div>'+
+    '<div class="flex" style="gap:6px">'+
+    '<button class="btn btn-sm btn-ghost" onclick="toggleKeys('+i+',\'keys-'+h(g.id)+'\')">&#128273; Keys</button>'+
+    '<button class="btn btn-sm btn-primary" onclick="openCreateKey('+i+')">+ Add Key</button>'+
+    '<button class="btn btn-sm btn-danger" onclick="deleteGroup(\''+h(g.id)+'\',\''+h(g.name)+'\')">Delete</button>'+
+    '</div></div>'+
+    '<div style="font-size:12px;color:var(--tx4)">ID: <span class="mono">'+h(g.id)+'</span></div>'+
+    '<div id="keys-'+h(g.id)+'" style="display:none;margin-top:12px"></div>'+
+    '</div>';
   });
+  document.getElementById('content').innerHTML=out;
 }
 
-// ── Package Stats ─────────────────────────────────────────────────────────────
+function toggleKeys(i,elId){var el=document.getElementById(elId);if(el.style.display==='none'){el.style.display='block';loadGroupKeys(i);}else{el.style.display='none';}}
 
-async function loadPackageStats() {
-  const days = currentPeriod;
-  const label = days === 0 ? 'all time' : `last ${days} days`;
-  document.getElementById('pkgstats-period').textContent = label;
+async function loadGroupKeys(i){
+  var g=grpList[i];
+  var el=document.getElementById('keys-'+g.id);
+  el.innerHTML='<div class="empty" style="padding:10px"><span class="spin">&#8635;</span></div>';
+  try{
+    var keys=await api('/api/groups/'+g.id+'/keys');
+    if(!keys.length){el.innerHTML='<div class="empty" style="padding:10px">No keys</div>';return;}
+    el.innerHTML='<div class="tbl-wrap"><table><thead><tr><th>Name</th><th>Prefix</th><th>Created</th><th></th></tr></thead><tbody>'+
+    keys.map(function(k){
+      return'<tr><td>'+h(k.name||'&mdash;')+'</td>'+
+      '<td class="mono" style="font-size:11px">'+h(k.key_prefix||'')+'&hellip;</td>'+
+      '<td style="font-size:12px;color:var(--tx3)">'+fmtDate(k.created_at)+'</td>'+
+      '<td><button class="btn btn-sm btn-danger" onclick="revokeKey(\''+h(g.id)+'\',\''+h(k.id)+'\','+i+')">Revoke</button></td></tr>';
+    }).join('')+'</tbody></table></div>';
+  }catch(e){el.innerHTML='<div class="empty">Error: '+h(e.message)+'</div>';}
+}
 
-  let stats;
-  try {
-    const res = await fetch('/api/package-stats?days=' + (days || 0));
-    stats = await res.json();
-  } catch (e) {
-    document.getElementById('stats-grid').innerHTML =
-      `<div class="empty" style="grid-column:span 3">Failed to load: ${e.message}</div>`;
-    return;
+function openCreateGroup(){
+  showModal('<div class="modal-title">Create Group <button class="icon-btn" onclick="closeModal()">&#x2715;</button></div>'+
+  '<div class="fg"><label class="lbl">Group Name</label><input class="input" id="ng-name" placeholder="e.g. Production team" onkeydown="if(event.key===\'Enter\')createGroup()"></div>'+
+  '<div class="modal-footer"><button class="btn btn-ghost" onclick="closeModal()">Cancel</button><button class="btn btn-primary" onclick="createGroup()">Create</button></div>');
+  setTimeout(function(){var el=document.getElementById('ng-name');if(el)el.focus();},80);
+}
+
+async function createGroup(){
+  var name=(document.getElementById('ng-name')||{}).value;
+  name=name?name.trim():'';if(!name)return;
+  try{
+    await fetch('/api/groups',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:name})});
+    closeModal();await renderGroups();await refreshGroupSel();
+  }catch(e){alert('Error: '+e.message);}
+}
+
+async function deleteGroup(id,name){
+  if(!confirm('Delete group "'+name+'"? This cannot be undone.'))return;
+  try{await fetch('/api/groups/'+id,{method:'DELETE'});await renderGroups();await refreshGroupSel();}
+  catch(e){alert('Error: '+e.message);}
+}
+
+function openCreateKey(i){
+  var g=grpList[i];
+  showModal('<div class="modal-title">Add API Key &mdash; '+h(g.name)+' <button class="icon-btn" onclick="closeModal()">&#x2715;</button></div>'+
+  '<div class="fg"><label class="lbl">Key Name (optional)</label><input class="input" id="nk-name" placeholder="e.g. CI pipeline" onkeydown="if(event.key===\'Enter\')createKey(\''+h(g.id)+'\')"></div>'+
+  '<div class="modal-footer"><button class="btn btn-ghost" onclick="closeModal()">Cancel</button><button class="btn btn-primary" onclick="createKey(\''+h(g.id)+'\')">Create Key</button></div>');
+  setTimeout(function(){var el=document.getElementById('nk-name');if(el)el.focus();},80);
+}
+
+async function createKey(gid){
+  var name=(document.getElementById('nk-name')||{}).value||'';name=name.trim();
+  try{
+    var r=await fetch('/api/groups/'+gid+'/keys',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:name})});
+    var data=await r.json();
+    var secret=data.secret||'';
+    var safeSecret=h(secret);
+    showModal('<div class="modal-title">&#10003; Key Created <button class="icon-btn" onclick="closeModal();renderGroups()">&#x2715;</button></div>'+
+    '<div style="color:var(--dn);font-size:13px;margin-bottom:10px;padding:10px;background:var(--dn-bg);border-radius:8px">'+
+    '&#9888;&#65039; Copy this key now &mdash; it will <strong>not</strong> be shown again.</div>'+
+    '<div class="key-box">'+safeSecret+'</div>'+
+    '<p style="font-size:12px;color:var(--tx3);margin:10px 0 4px">Add to PMG config:</p>'+
+    '<div class="key-box" style="font-size:11px">cloud:\n  api_key: "'+safeSecret+'"\n  endpoint: "https://your-server:8443"</div>'+
+    '<div class="modal-footer">'+
+    '<button class="btn btn-primary" id="copy-key-btn" onclick="copyKey(\''+safeSecret+'\')">&#128203; Copy Key</button>'+
+    '<button class="btn btn-ghost" onclick="closeModal();renderGroups()">Done</button>'+
+    '</div>');
+  }catch(e){alert('Error: '+e.message);}
+}
+
+function copyKey(safeStr){
+  var raw=safeStr.replace(/&amp;/g,'&').replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/&quot;/g,'"');
+  navigator.clipboard.writeText(raw).then(function(){var btn=document.getElementById('copy-key-btn');if(btn)btn.textContent='Copied ✓';});
+}
+
+async function revokeKey(gid,kid,grpIdx){
+  if(!confirm('Revoke this key? PMG agents using it will lose access.'))return;
+  try{await fetch('/api/groups/'+gid+'/keys/'+kid,{method:'DELETE'});loadGroupKeys(grpIdx);}
+  catch(e){alert('Error: '+e.message);}
+}
+
+async function refreshGroupSel(){
+  S.groups=await api('/api/groups').catch(function(){return[];});
+  var sel=document.getElementById('group-sel');
+  var cur=sel.value;
+  sel.innerHTML='<option value="">All groups</option>';
+  S.groups.forEach(function(g){var o=document.createElement('option');o.value=g.id;o.textContent=g.name+' ('+(g.key_count||0)+')';if(g.id===cur)o.selected=true;sel.appendChild(o);});
+}
+
+/* ---- AUDIT ---- */
+async function renderAudit(){
+  var entries=await api('/api/audit?limit=200');
+  document.getElementById('content').innerHTML=
+'<div class="sec-title">Audit Log <small>'+entries.length+' entries</small></div>'+
+'<div class="tbl-wrap"><table><thead><tr><th>Time</th><th>Action</th><th>Subject</th><th>Detail</th></tr></thead><tbody>'+
+(entries.length?entries.map(function(e){
+  return'<tr>'+
+  '<td style="font-size:12px;white-space:nowrap">'+fmtDate(e.timestamp)+'</td>'+
+  '<td>'+bdg(e.action||'&mdash;','gray')+'</td>'+
+  '<td class="trunc mono" style="font-size:11px">'+h(e.subject||'&mdash;')+'</td>'+
+  '<td class="trunc" style="color:var(--tx3)">'+h(e.detail||'')+'</td></tr>';
+}).join(''):'<tr><td colspan="4" class="empty">No audit entries</td></tr>')+
+'</tbody></table></div>';
+}
+
+/* ---- SETTINGS ---- */
+async function renderSettings(){
+  var cfg={};try{cfg=await api('/api/config');S.config=cfg;}catch(e){}
+  var wh=cfg.webhooks||[];
+  var al=cfg.alert_config||{};
+  document.getElementById('content').innerHTML=
+'<div class="two-col">'+
+'<div class="card"><div class="card-title">Data Retention</div>'+
+'<div class="fg"><label class="lbl">Delete events older than</label>'+
+'<div class="flex"><input class="input" type="number" id="cfg-ret" value="'+(cfg.retention_days||30)+'" min="0" style="width:90px">'+
+'<span style="font-size:13px;color:var(--tx3)">days &nbsp;(0 = disabled)</span></div></div>'+
+'<button class="btn btn-primary" onclick="saveRetention()">Save</button></div>'+
+'<div class="card"><div class="card-title">Alert Thresholds</div>'+
+'<div class="fg"><label class="lbl">Alert when blocked packages exceed</label>'+
+'<input class="input" type="number" id="cfg-blk" value="'+(al.blocked_per_minute||0)+'" min="0" style="width:120px"></div>'+
+'<div class="fg flex"><label class="toggle"><input type="checkbox" id="cfg-ml"'+(al.malware_any?' checked':'')+'>'+
+'<span class="tog-sl"></span></label><span style="font-size:13px">Alert on any malware detection</span></div>'+
+'<button class="btn btn-primary" onclick="saveAlerts()">Save</button></div>'+
+'</div>'+
+'<div class="sec-title">Webhooks <small>'+wh.length+' configured</small>'+
+'<button class="btn btn-primary btn-sm" onclick="openAddWebhook()">+ Add Webhook</button></div>'+
+'<div class="tbl-wrap"><table><thead><tr><th>Name</th><th>URL</th><th>Triggers</th><th>Status</th><th></th></tr></thead><tbody>'+
+(wh.length?wh.map(function(w){
+  return'<tr>'+
+  '<td>'+h(w.name||'&mdash;')+'</td>'+
+  '<td class="trunc mono" style="font-size:11px">'+h(w.url||'&mdash;')+'</td>'+
+  '<td>'+(w.on_malware?bdg('malware','red'):'')+' '+(w.on_blocked?bdg('blocked','yellow'):'')+'</td>'+
+  '<td>'+(w.enabled!==false?bdg('Enabled','green'):bdg('Disabled','gray'))+'</td>'+
+  '<td class="flex" style="gap:4px">'+
+  '<button class="btn btn-sm btn-ghost" onclick="toggleWebhook(\''+h(w.id)+'\','+(!(w.enabled!==false))+')">'+
+  (w.enabled!==false?'Disable':'Enable')+'</button>'+
+  '<button class="btn btn-sm btn-danger" onclick="deleteWebhook(\''+h(w.id)+'\')">Delete</button>'+
+  '</td></tr>';
+}).join(''):'<tr><td colspan="5" class="empty">No webhooks configured</td></tr>')+
+'</tbody></table></div>';
+}
+
+async function saveRetention(){
+  var days=parseInt(document.getElementById('cfg-ret').value)||0;
+  try{var c=await api('/api/config');c.retention_days=days;await fetch('/api/config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(c)});alert('Saved!');}
+  catch(e){alert('Error: '+e.message);}
+}
+async function saveAlerts(){
+  var blk=parseInt(document.getElementById('cfg-blk').value)||0;
+  var ml=document.getElementById('cfg-ml').checked;
+  try{var c=await api('/api/config');c.alert_config=Object.assign(c.alert_config||{},{blocked_per_minute:blk,malware_any:ml});await fetch('/api/config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(c)});S.config=c;alert('Saved!');}
+  catch(e){alert('Error: '+e.message);}
+}
+
+function openAddWebhook(){
+  showModal('<div class="modal-title">Add Webhook <button class="icon-btn" onclick="closeModal()">&#x2715;</button></div>'+
+  '<div class="fg"><label class="lbl">Name</label><input class="input" id="wh-n" placeholder="e.g. Slack alerts"></div>'+
+  '<div class="fg"><label class="lbl">URL</label><input class="input" id="wh-u" placeholder="https://hooks.example.com/..."></div>'+
+  '<div class="fg flex"><label class="toggle"><input type="checkbox" id="wh-ml"><span class="tog-sl"></span></label><span style="font-size:13px">Trigger on malware detection</span></div>'+
+  '<div class="fg flex"><label class="toggle"><input type="checkbox" id="wh-bl"><span class="tog-sl"></span></label><span style="font-size:13px">Trigger on blocked packages</span></div>'+
+  '<div class="modal-footer"><button class="btn btn-ghost" onclick="closeModal()">Cancel</button><button class="btn btn-primary" onclick="addWebhook()">Add</button></div>');
+}
+async function addWebhook(){
+  var url=(document.getElementById('wh-u')||{}).value;url=url?url.trim():'';if(!url)return;
+  try{
+    await fetch('/api/config/webhooks',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
+      name:(document.getElementById('wh-n')||{}).value||'',url:url,
+      on_malware:!!(document.getElementById('wh-ml')||{}).checked,
+      on_blocked:!!(document.getElementById('wh-bl')||{}).checked,enabled:true})});
+    closeModal();await renderSettings();
+  }catch(e){alert('Error: '+e.message);}
+}
+async function toggleWebhook(id,enabled){
+  try{var c=await api('/api/config');var w=(c.webhooks||[]).find(function(x){return x.id===id;});if(!w)return;await fetch('/api/config/webhooks/'+id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(Object.assign({},w,{enabled:enabled}))});await renderSettings();}
+  catch(e){alert('Error: '+e.message);}
+}
+async function deleteWebhook(id){
+  if(!confirm('Delete this webhook?'))return;
+  try{await fetch('/api/config/webhooks/'+id,{method:'DELETE'});await renderSettings();}
+  catch(e){alert('Error: '+e.message);}
+}
+
+/* ---- MODAL ---- */
+function showModal(html){document.getElementById('modal-body').innerHTML=html;document.getElementById('modal').style.display='flex';}
+function closeModal(){document.getElementById('modal').style.display='none';document.getElementById('modal-body').innerHTML='';}
+
+/* ---- SETUP WIZARD ---- */
+var wizData={};
+async function checkWizard(){
+  try{var gs=await api('/api/groups');if(gs.length===0)showWizard(0);}catch(e){}
+}
+function showWizard(step){
+  if(step===0){
+    showModal('<div class="wiz-step"><div class="wiz-icon">&#128640;</div><div class="wiz-title">Welcome to PMG Cloud</div>'+
+    '<div class="wiz-desc">Create your first group to start managing API keys for PMG agents connecting to this server.</div>'+
+    '<div class="fg" style="text-align:left"><label class="lbl">Group Name</label>'+
+    '<input class="input" id="wiz-gn" placeholder="e.g. Production team" onkeydown="if(event.key===\'Enter\')wizStep1()"></div>'+
+    '<div class="modal-footer" style="justify-content:center">'+
+    '<button class="btn btn-ghost" onclick="closeModal()">Skip for now</button>'+
+    '<button class="btn btn-primary" onclick="wizStep1()">Create Group &#8594;</button>'+
+    '</div></div>');
+    setTimeout(function(){var el=document.getElementById('wiz-gn');if(el)el.focus();},80);
+  }else if(step===1){
+    showModal('<div class="wiz-step"><div class="wiz-icon">&#128273;</div><div class="wiz-title">Create API Key</div>'+
+    '<div class="wiz-desc">Create the first API key for group <strong>'+h(wizData.groupName)+'</strong>.</div>'+
+    '<div class="fg" style="text-align:left"><label class="lbl">Key Name (optional)</label>'+
+    '<input class="input" id="wiz-kn" placeholder="e.g. My workstation" onkeydown="if(event.key===\'Enter\')wizStep2()"></div>'+
+    '<div class="modal-footer" style="justify-content:center">'+
+    '<button class="btn btn-ghost" onclick="closeModal();nav(\'groups\')">Skip</button>'+
+    '<button class="btn btn-primary" onclick="wizStep2()">Create Key &#8594;</button>'+
+    '</div></div>');
+    setTimeout(function(){var el=document.getElementById('wiz-kn');if(el)el.focus();},80);
+  }else if(step===2){
+    var safeKey=h(wizData.secret||'');
+    showModal('<div class="wiz-step"><div class="wiz-icon">&#9989;</div><div class="wiz-title">You\'re All Set!</div>'+
+    '<div class="wiz-desc">Copy your API key and add it to your PMG configuration file.</div>'+
+    '<div class="key-box">'+safeKey+'</div>'+
+    '<p style="font-size:12px;color:var(--tx3);margin:6px 0 4px;text-align:left">Add to <code>~/.pmg.yml</code>:</p>'+
+    '<div class="key-box" style="font-size:11px">cloud:\n  api_key: "'+safeKey+'"\n  endpoint: "https://YOUR_SERVER:8443"</div>'+
+    '<div class="modal-footer" style="justify-content:center">'+
+    '<button class="btn btn-primary" id="wiz-copy-btn" onclick="copyKey(\''+safeKey+'\');document.getElementById(\'wiz-copy-btn\').textContent=\'Copied ✓\'">&#128203; Copy Key</button>'+
+    '<button class="btn btn-ghost" onclick="closeModal();nav(\'dashboard\')">Go to Dashboard</button>'+
+    '</div></div>');
   }
-
-  const makeTable = (title, rows, colLabel) => {
-    if (!rows || rows.length === 0) {
-      return `<div class="table-wrap">
-        <div style="padding:12px 16px;font-size:13px;font-weight:600;color:#374151;border-bottom:1px solid #e5e7eb">${title}</div>
-        <div class="empty" style="padding:24px">No data</div>
-      </div>`;
-    }
-    const maxCount = Math.max(...rows.map(r => r.count));
-    return `<div class="table-wrap">
-      <div style="padding:12px 16px;font-size:13px;font-weight:600;color:#374151;border-bottom:1px solid #e5e7eb">${title}</div>
-      <table>
-        <thead><tr><th>#</th><th>${colLabel}</th><th>Count</th></tr></thead>
-        <tbody>${rows.map((r, i) => {
-          const pct = Math.round(r.count / maxCount * 100);
-          const eco = r.ecosystem ? `<span class="badge badge-gray" style="font-size:10px;margin-left:4px">${r.ecosystem}</span>` : '';
-          return `<tr>
-            <td style="color:#9ca3af;font-size:12px">${i+1}</td>
-            <td style="font-weight:500">${r.name}${eco}</td>
-            <td>
-              <div style="display:flex;align-items:center;gap:8px">
-                <div style="flex:1;height:6px;background:#f3f4f6;border-radius:3px;min-width:60px">
-                  <div style="width:${pct}%;height:100%;background:#0D9488;border-radius:3px"></div>
-                </div>
-                <span style="font-size:12px;color:#374151;min-width:32px;text-align:right">${r.count.toLocaleString()}</span>
-              </div>
-            </td>
-          </tr>`;
-        }).join('')}</tbody>
-      </table>
-    </div>`;
-  };
-
-  document.getElementById('stats-grid').innerHTML =
-    makeTable('Top Packages',   stats.top_packages,   'Package') +
-    makeTable('Top Ecosystems', stats.top_ecosystems, 'Ecosystem') +
-    makeTable('Top Endpoints',  stats.top_endpoints,  'Endpoint');
 }
-
-// ── Shared helpers ────────────────────────────────────────────────────────────
-
-function renderEventRows(events, cols) {
-  if (!events || events.length === 0)
-    return `<tr><td colspan="${cols}" class="empty">No events in this period</td></tr>`;
-
-  return events.map(ev => {
-    const time   = fmtTime(ev.received_at);
-    const pkg    = ev.package_name
-      ? ev.package_name
-      : (ev.event_type === 'SESSION_SUMMARY'
-          ? `<em style="color:#9ca3af">${ev.outcome || 'session'}</em>`
-          : '&mdash;');
-    if (cols === 6) {
-      return `<tr>
-        <td style="white-space:nowrap;color:#6b7280;font-size:12px">${time}</td>
-        <td style="font-size:12px">${ev.endpoint_id || '&mdash;'}</td>
-        <td>${typeBadge(ev.event_type)}</td>
-        <td>${pkg}</td>
-        <td>${actionBadge(ev.action)}</td>
-        <td>${malwareBadge(ev.is_malware)}</td>
-      </tr>`;
-    }
-    return `<tr>
-      <td style="white-space:nowrap;color:#6b7280;font-size:12px">${time}</td>
-      <td style="font-size:12px">${ev.tenant_id       || '&mdash;'}</td>
-      <td style="font-size:12px">${ev.endpoint_id     || '&mdash;'}</td>
-      <td>${typeBadge(ev.event_type)}</td>
-      <td>${pkg}</td>
-      <td>${ev.package_version  || '&mdash;'}</td>
-      <td>${ev.ecosystem        || '&mdash;'}</td>
-      <td>${actionBadge(ev.action)}</td>
-      <td>${malwareBadge(ev.is_malware)}</td>
-    </tr>`;
-  }).join('');
+async function wizStep1(){
+  var el=document.getElementById('wiz-gn');var name=el?el.value.trim():'';if(!name)return;
+  try{
+    var g=await fetch('/api/groups',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:name})}).then(function(r){return r.json();});
+    wizData.groupId=g.id;wizData.groupName=name;
+    await refreshGroupSel();showWizard(1);
+  }catch(e){alert('Error: '+e.message);}
 }
-
-function fmtTime(ts) {
-  return ts ? new Date(ts).toLocaleString() : '&mdash;';
+async function wizStep2(){
+  var el=document.getElementById('wiz-kn');var kname=el?el.value.trim():'';
+  try{
+    var r=await fetch('/api/groups/'+wizData.groupId+'/keys',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:kname})}).then(function(x){return x.json();});
+    wizData.secret=r.secret||'';showWizard(2);
+  }catch(e){alert('Error: '+e.message);}
 }
-
-function actionBadge(action) {
-  if (!action) return '&mdash;';
-  const cls = action === 'BLOCKED' || action === 'COOLDOWN_BLOCKED' ? 'badge-red'
-            : action === 'CONFIRMED' ? 'badge-green'
-            : action === 'TRUSTED'   ? 'badge-teal'
-            : 'badge-gray';
-  return `<span class="badge ${cls}">${action}</span>`;
-}
-
-function malwareBadge(val) {
-  return val === true  ? '<span class="badge badge-red">YES</span>'
-       : val === false ? '<span class="badge badge-green">No</span>'
-       : '&mdash;';
-}
-
-function typeBadge(type) {
-  if (!type) return '&mdash;';
-  const cls = type === 'PACKAGE_DECISION' ? 'badge-teal'
-            : type === 'SESSION_SUMMARY'  ? 'badge-gray'
-            : type === 'ERROR'            ? 'badge-red'
-            : 'badge-yellow';
-  return `<span class="badge ${cls}">${type.replace(/_/g,' ')}</span>`;
-}
-
-// ── Groups ────────────────────────────────────────────────────────────────────
-
-let groupsList = [];
-let keysList = [];
-let selectedGroupID = null;
-let selectedGroupName = '';
-
-async function loadGroups() {
-  let rows;
-  try {
-    const res = await fetch('/api/groups');
-    rows = await res.json();
-  } catch (e) {
-    document.getElementById('groups-tbody').innerHTML =
-      `<tr><td colspan="4" class="empty">Failed to load: ${e.message}</td></tr>`;
-    return;
-  }
-  groupsList = rows || [];
-  renderGroupsList();
-  if (selectedGroupID) loadKeys(selectedGroupID, selectedGroupName);
-}
-
-function renderGroupsList() {
-  const tbody = document.getElementById('groups-tbody');
-  if (!groupsList.length) {
-    tbody.innerHTML = '<tr><td colspan="4" class="empty">No groups yet. Create one to get started.</td></tr>';
-    return;
-  }
-  tbody.innerHTML = groupsList.map((g, i) => {
-    const isSelected = g.id === selectedGroupID;
-    return `<tr style="${isSelected ? 'background:#f0fdfa' : ''};cursor:pointer" onclick="selectGroupByIdx(${i})">
-      <td style="font-weight:${isSelected ? '600' : '400'};color:${isSelected ? '#0D9488' : '#111827'}">${escapeHTML(g.name)}</td>
-      <td style="text-align:right">${g.key_count || 0}</td>
-      <td style="font-size:12px;color:#6b7280">${g.created_at ? new Date(g.created_at).toLocaleDateString() : '&mdash;'}</td>
-      <td>
-        <button class="btn-danger-sm" onclick="event.stopPropagation();deleteGroupByIdx(${i})">Delete</button>
-      </td>
-    </tr>`;
-  }).join('');
-}
-
-function selectGroupByIdx(i) {
-  const g = groupsList[i];
-  if (!g) return;
-  selectedGroupID = g.id;
-  selectedGroupName = g.name;
-  renderGroupsList();
-  document.getElementById('keys-placeholder').style.display = 'none';
-  loadKeys(g.id, g.name);
-}
-
-async function loadKeys(groupID, groupName) {
-  const panel = document.getElementById('keys-panel');
-  panel.style.display = '';
-  document.getElementById('keys-panel-group-name').textContent = groupName;
-  document.getElementById('keys-tbody').innerHTML = '<tr><td colspan="4" class="loading">Loading&hellip;</td></tr>';
-  const res = await fetch(`/api/groups/${encodeURIComponent(groupID)}/keys`);
-  keysList = await res.json() || [];
-  if (!keysList.length) {
-    document.getElementById('keys-tbody').innerHTML =
-      '<tr><td colspan="4" class="empty">No keys yet.</td></tr>';
-    return;
-  }
-  document.getElementById('keys-tbody').innerHTML = keysList.map((k, i) => `
-    <tr>
-      <td style="font-weight:500">${escapeHTML(k.name)}</td>
-      <td><code style="font-size:11px;color:#6b7280">${escapeHTML(k.key_prefix)}…</code></td>
-      <td style="font-size:12px;color:#6b7280">${k.created_at ? new Date(k.created_at).toLocaleDateString() : '&mdash;'}</td>
-      <td><button class="btn-danger-sm" onclick="revokeKeyByIdx(${i})">Revoke</button></td>
-    </tr>`).join('');
-}
-
-async function deleteGroupByIdx(i) {
-  const g = groupsList[i];
-  if (!g) return;
-  if (!confirm(`Delete group "${g.name}"? This will also revoke all its API keys.`)) return;
-  const res = await fetch(`/api/groups/${encodeURIComponent(g.id)}`, { method: 'DELETE' });
-  if (!res.ok) { alert('Error: ' + (await res.text())); return; }
-  if (selectedGroupID === g.id) {
-    selectedGroupID = null;
-    selectedGroupName = '';
-    document.getElementById('keys-panel').style.display = 'none';
-    document.getElementById('keys-placeholder').style.display = '';
-  }
-  loadGroups();
-}
-
-async function revokeKeyByIdx(i) {
-  const k = keysList[i];
-  if (!k) return;
-  if (!confirm(`Revoke key "${k.name}"? Agents using this key will immediately lose access.`)) return;
-  const res = await fetch(
-    `/api/groups/${encodeURIComponent(selectedGroupID)}/keys/${encodeURIComponent(k.id)}`,
-    { method: 'DELETE' }
-  );
-  if (!res.ok) { alert('Error: ' + (await res.text())); return; }
-  loadGroups();
-}
-
-function openNewGroupModal() {
-  document.getElementById('new-group-name').value = '';
-  document.getElementById('new-group-error').style.display = 'none';
-  document.getElementById('btn-create-group').disabled = false;
-  document.getElementById('modal-new-group').classList.remove('hidden');
-  setTimeout(() => document.getElementById('new-group-name').focus(), 50);
-}
-
-async function createGroup() {
-  const name = document.getElementById('new-group-name').value.trim();
-  const errEl = document.getElementById('new-group-error');
-  errEl.style.display = 'none';
-  if (!name) { errEl.textContent = 'Name is required'; errEl.style.display = ''; return; }
-  document.getElementById('btn-create-group').disabled = true;
-  const res = await fetch('/api/groups', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ name }),
-  });
-  if (!res.ok) {
-    errEl.textContent = await res.text();
-    errEl.style.display = '';
-    document.getElementById('btn-create-group').disabled = false;
-    return;
-  }
-  closeModal('modal-new-group');
-  loadGroups();
-}
-
-function openNewKeyModal() {
-  if (!selectedGroupID) return;
-  document.getElementById('new-key-name').value = '';
-  document.getElementById('new-key-error').style.display = 'none';
-  document.getElementById('new-key-secret').style.display = 'none';
-  document.getElementById('new-key-secret-text').textContent = '';
-  document.getElementById('btn-create-key').disabled = false;
-  document.getElementById('btn-create-key').style.display = '';
-  document.getElementById('btn-cancel-key').textContent = 'Cancel';
-  document.getElementById('modal-new-key').classList.remove('hidden');
-  setTimeout(() => document.getElementById('new-key-name').focus(), 50);
-}
-
-async function createKey() {
-  const name = document.getElementById('new-key-name').value.trim();
-  const errEl = document.getElementById('new-key-error');
-  errEl.style.display = 'none';
-  if (!name) { errEl.textContent = 'Name is required'; errEl.style.display = ''; return; }
-  document.getElementById('btn-create-key').disabled = true;
-  const res = await fetch(`/api/groups/${encodeURIComponent(selectedGroupID)}/keys`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ name }),
-  });
-  if (!res.ok) {
-    errEl.textContent = await res.text();
-    errEl.style.display = '';
-    document.getElementById('btn-create-key').disabled = false;
-    return;
-  }
-  const data = await res.json();
-  // Show the plaintext key once
-  document.getElementById('new-key-secret-text').textContent = data.secret || '';
-  document.getElementById('new-key-secret').style.display = '';
-  document.getElementById('btn-create-key').style.display = 'none';
-  document.getElementById('btn-cancel-key').textContent = 'Done';
-  loadGroups();
-}
-
-function copySecret() {
-  const text = document.getElementById('new-key-secret-text').textContent;
-  const btn = document.getElementById('btn-copy-secret');
-  navigator.clipboard.writeText(text).catch(() => {
-    const ta = document.createElement('textarea');
-    ta.value = text; document.body.appendChild(ta); ta.select(); document.execCommand('copy'); document.body.removeChild(ta);
-  });
-  btn.textContent = 'Copied!'; btn.classList.add('copied');
-  setTimeout(() => { btn.textContent = 'Copy'; btn.classList.remove('copied'); }, 1500);
-}
-
-function closeModal(id) {
-  document.getElementById(id).classList.add('hidden');
-}
-
-function escapeHTML(s) {
-  return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
-}
-
-// ── Init ──────────────────────────────────────────────────────────────────────
-
-loadDashboard();
-markUpdated();
-startAR();
 </script>
 </body>
 </html>

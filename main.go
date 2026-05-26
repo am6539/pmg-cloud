@@ -80,6 +80,15 @@ func main() {
 		os.Exit(1)
 	}
 
+	cfgStore, err := dashboard.NewConfigStore(*dataDir)
+	if err != nil {
+		slog.Error("failed to open config store", "err", err)
+		os.Exit(1)
+	}
+
+	auditLog := dashboard.NewAuditLog(*dataDir)
+	webhookDelivery := dashboard.NewWebhookDelivery(cfgStore)
+
 	svc, err := server.New(*dataDir, apiKeys, groups)
 	if err != nil {
 		slog.Error("failed to create server", "err", err)
@@ -110,8 +119,14 @@ func main() {
 	}
 	slog.Info("pmg-cloud started", "addr", *addr, "insecure", *insecure, "auth", authMode, "data_dir", *dataDir)
 
-	if *retentionDays > 0 {
-		go runRetentionLoop(*dataDir, *retentionDays)
+	effectiveRetention := *retentionDays
+	if cfgStore != nil {
+		if r := cfgStore.Get().RetentionDays; r > 0 {
+			effectiveRetention = r
+		}
+	}
+	if effectiveRetention > 0 {
+		go runRetentionLoop(*dataDir, effectiveRetention)
 	}
 
 	if *httpAddr != "" {
@@ -125,13 +140,20 @@ func main() {
 			}
 			slog.Info("dashboard started", "addr", *httpAddr, "auth", *dashUser != "")
 			mirror := dashboard.NewMalwareMirror(*dataDir + "/aikido-mirror")
+			deps := dashboard.HandlerDeps{
+				Mirror:  mirror,
+				Groups:  groups,
+				Config:  cfgStore,
+				Audit:   auditLog,
+				Webhook: webhookDelivery,
+			}
 
 			// /healthz is always unauthenticated (load balancers, Docker HEALTHCHECK).
 			// Everything else is wrapped with optional basic auth.
 			mux := http.NewServeMux()
 			mux.Handle("/healthz", dashboard.HealthzHandler())
 			mux.Handle("/", dashboard.BasicAuthMiddleware(
-				dashboard.Handler(*dataDir, mirror, groups),
+				dashboard.Handler(*dataDir, deps),
 				*dashUser, *dashPass,
 			))
 			if err := http.Serve(ln, mux); err != nil {

@@ -14,7 +14,7 @@ import (
 func newHandlerMirror(t *testing.T, srvURL string) http.Handler {
 	t.Helper()
 	m := newTestMirror(t, srvURL, srvURL)
-	return Handler(t.TempDir(), m, nil)
+	return Handler(t.TempDir(), HandlerDeps{Mirror: m})
 }
 
 func TestHandler_HealthzHandler_ReturnsOK(t *testing.T) {

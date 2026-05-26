@@ -35,6 +35,14 @@ type Event struct {
 	IsMalware      *bool  `json:"is_malware"`
 	IsVerified     *bool  `json:"is_verified"`
 	AnalysisID     string `json:"analysis_id"`
+	// invocation context fields
+	CIProvider       string `json:"ci_provider,omitempty"`
+	CIRepository     string `json:"ci_repository,omitempty"`
+	CIBranch         string `json:"ci_branch,omitempty"`
+	CICommitSHA      string `json:"ci_commit_sha,omitempty"`
+	AgentName        string `json:"agent_name,omitempty"`
+	WorkingDirectory string `json:"working_directory,omitempty"`
+	Command          string `json:"command,omitempty"`
 	// session_summary
 	PackageManager       string `json:"package_manager"`
 	FlowType             string `json:"flow_type"`
@@ -73,9 +81,10 @@ type Stats struct {
 
 // PackageStat holds a name/count pair for top-N rankings.
 type PackageStat struct {
-	Name      string `json:"name"`
-	Ecosystem string `json:"ecosystem,omitempty"`
-	Count     int    `json:"count"`
+	Name         string `json:"name"`
+	Ecosystem    string `json:"ecosystem,omitempty"`
+	Count        int    `json:"count"`
+	BlockedCount int    `json:"blocked_count,omitempty"`
 }
 
 // PackageStats is returned by GET /api/package-stats.
@@ -107,9 +116,10 @@ type EndpointInfo struct {
 // Reader reads events from JSONL files in a directory.
 // Results are cached for cacheTTL to avoid re-reading on every API request.
 type Reader struct {
-	dataDir string
-	mu      sync.Mutex
-	cache   map[int]cachedLoad
+	dataDir    string
+	mu         sync.Mutex
+	cache      map[int]cachedLoad
+	rangeCache map[string]cachedLoad
 }
 
 const cacheTTL = 5 * time.Second
@@ -120,7 +130,11 @@ type cachedLoad struct {
 }
 
 func NewReader(dataDir string) *Reader {
-	return &Reader{dataDir: dataDir, cache: make(map[int]cachedLoad)}
+	return &Reader{
+		dataDir:    dataDir,
+		cache:      make(map[int]cachedLoad),
+		rangeCache: make(map[string]cachedLoad),
+	}
 }
 
 // LoadEvents reads all events from JSONL files within the last `days` days.
@@ -141,6 +155,70 @@ func (r *Reader) LoadEvents(days int) ([]Event, error) {
 	r.mu.Lock()
 	r.cache[days] = cachedLoad{events: events, cachedAt: time.Now()}
 	r.mu.Unlock()
+	return events, nil
+}
+
+// LoadEventsRange loads events with received_at between from and to (inclusive).
+// Results are cached for 5 seconds keyed by the date range.
+func (r *Reader) LoadEventsRange(from, to time.Time) ([]Event, error) {
+	key := from.UTC().Format("20060102") + "-" + to.UTC().Format("20060102")
+
+	r.mu.Lock()
+	if c, ok := r.rangeCache[key]; ok && time.Since(c.cachedAt) < cacheTTL {
+		r.mu.Unlock()
+		return c.events, nil
+	}
+	r.mu.Unlock()
+
+	events, err := r.loadRangeFromDisk(from, to)
+	if err != nil {
+		return nil, err
+	}
+
+	r.mu.Lock()
+	r.rangeCache[key] = cachedLoad{events: events, cachedAt: time.Now()}
+	r.mu.Unlock()
+	return events, nil
+}
+
+func (r *Reader) loadRangeFromDisk(from, to time.Time) ([]Event, error) {
+	files, err := filepath.Glob(filepath.Join(r.dataDir, "events-*.jsonl"))
+	if err != nil {
+		return nil, err
+	}
+	sort.Strings(files)
+
+	fromDay := from.UTC().Truncate(24 * time.Hour)
+	toDay := to.UTC().Truncate(24 * time.Hour).Add(24 * time.Hour) // inclusive end
+
+	var events []Event
+	for _, f := range files {
+		base := filepath.Base(f)
+		dateStr := strings.TrimPrefix(strings.TrimSuffix(base, ".jsonl"), "events-")
+		fileDate, err := time.Parse("20060102", dateStr)
+		if err != nil {
+			continue
+		}
+		if fileDate.Before(fromDay) || !fileDate.Before(toDay) {
+			continue
+		}
+
+		fh, err := os.Open(f)
+		if err != nil {
+			continue
+		}
+		scanner := bufio.NewScanner(fh)
+		scanner.Buffer(make([]byte, 1024*1024), 1024*1024)
+		for scanner.Scan() {
+			var ev Event
+			if err := json.Unmarshal(scanner.Bytes(), &ev); err == nil {
+				if !ev.ReceivedAt.Before(from) && !ev.ReceivedAt.After(to) {
+					events = append(events, ev)
+				}
+			}
+		}
+		fh.Close()
+	}
 	return events, nil
 }
 
@@ -296,6 +374,9 @@ func ComputePackageStats(events []Event) PackageStats {
 			s.Name = ev.PackageName
 			s.Ecosystem = ev.Ecosystem
 			s.Count++
+			if ev.Action == "BLOCKED" || ev.Action == "COOLDOWN_BLOCKED" {
+				s.BlockedCount++
+			}
 			pkgMap[key] = s
 		}
 		if ev.Ecosystem != "" {
@@ -409,4 +490,134 @@ func EndpointList(events []Event) []EndpointInfo {
 		return list[i].LastSeen.After(list[j].LastSeen)
 	})
 	return list
+}
+
+// CIRepoStat aggregates event counts per CI repository.
+type CIRepoStat struct {
+	Repository string    `json:"repository"`
+	Count      int       `json:"count"`
+	Blocked    int       `json:"blocked"`
+	LastSeen   time.Time `json:"last_seen"`
+}
+
+// CIBranchStat aggregates event counts per branch within a CI repository.
+type CIBranchStat struct {
+	Branch     string    `json:"branch"`
+	Repository string    `json:"repository"`
+	Count      int       `json:"count"`
+	Blocked    int       `json:"blocked"`
+	LastSeen   time.Time `json:"last_seen"`
+}
+
+// CIProviderStat aggregates event counts per CI provider.
+type CIProviderStat struct {
+	Provider string `json:"provider"`
+	Count    int    `json:"count"`
+	Blocked  int    `json:"blocked"`
+}
+
+// CIStats is returned by GET /api/ci-stats.
+type CIStats struct {
+	TopRepositories []CIRepoStat     `json:"top_repositories"`
+	TopBranches     []CIBranchStat   `json:"top_branches"`
+	ByProvider      []CIProviderStat `json:"by_provider"`
+	TotalCIEvents   int              `json:"total_ci_events"`
+}
+
+// ComputeCIStats aggregates CI telemetry from events where CIRepository is set.
+func ComputeCIStats(events []Event) CIStats {
+	type repoKey = string
+	type branchKey = string
+
+	repoMap := make(map[repoKey]*CIRepoStat)
+	branchMap := make(map[branchKey]*CIBranchStat)
+	providerMap := make(map[string]*CIProviderStat)
+	total := 0
+
+	isBlocked := func(ev Event) bool {
+		return ev.Action == "BLOCKED" || ev.Action == "COOLDOWN_BLOCKED"
+	}
+
+	for _, ev := range events {
+		if ev.CIRepository == "" {
+			continue
+		}
+		total++
+		blocked := 0
+		if isBlocked(ev) {
+			blocked = 1
+		}
+
+		// repo stats
+		rs, ok := repoMap[ev.CIRepository]
+		if !ok {
+			rs = &CIRepoStat{Repository: ev.CIRepository}
+			repoMap[ev.CIRepository] = rs
+		}
+		rs.Count++
+		rs.Blocked += blocked
+		if ev.ReceivedAt.After(rs.LastSeen) {
+			rs.LastSeen = ev.ReceivedAt
+		}
+
+		// branch stats
+		if ev.CIBranch != "" {
+			bk := ev.CIRepository + "|" + ev.CIBranch
+			bs, ok := branchMap[bk]
+			if !ok {
+				bs = &CIBranchStat{Branch: ev.CIBranch, Repository: ev.CIRepository}
+				branchMap[bk] = bs
+			}
+			bs.Count++
+			bs.Blocked += blocked
+			if ev.ReceivedAt.After(bs.LastSeen) {
+				bs.LastSeen = ev.ReceivedAt
+			}
+		}
+
+		// provider stats
+		if ev.CIProvider != "" {
+			ps, ok := providerMap[ev.CIProvider]
+			if !ok {
+				ps = &CIProviderStat{Provider: ev.CIProvider}
+				providerMap[ev.CIProvider] = ps
+			}
+			ps.Count++
+			ps.Blocked += blocked
+		}
+	}
+
+	// flatten and sort repos by count
+	repos := make([]CIRepoStat, 0, len(repoMap))
+	for _, v := range repoMap {
+		repos = append(repos, *v)
+	}
+	sort.Slice(repos, func(i, j int) bool { return repos[i].Count > repos[j].Count })
+	if len(repos) > 10 {
+		repos = repos[:10]
+	}
+
+	// flatten and sort branches by count
+	branches := make([]CIBranchStat, 0, len(branchMap))
+	for _, v := range branchMap {
+		branches = append(branches, *v)
+	}
+	sort.Slice(branches, func(i, j int) bool { return branches[i].Count > branches[j].Count })
+	if len(branches) > 10 {
+		branches = branches[:10]
+	}
+
+	// flatten providers
+	providers := make([]CIProviderStat, 0, len(providerMap))
+	for _, v := range providerMap {
+		providers = append(providers, *v)
+	}
+	sort.Slice(providers, func(i, j int) bool { return providers[i].Count > providers[j].Count })
+
+	return CIStats{
+		TopRepositories: repos,
+		TopBranches:     branches,
+		ByProvider:      providers,
+		TotalCIEvents:   total,
+	}
 }
