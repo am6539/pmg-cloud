@@ -50,6 +50,12 @@ type Event struct {
 	TransitiveEnabled    *bool  `json:"transitive_enabled"`
 }
 
+// DayBucket holds an event count for a single UTC day.
+type DayBucket struct {
+	Date  string `json:"date"`
+	Count int    `json:"count"`
+}
+
 // Stats holds aggregated dashboard metrics.
 type Stats struct {
 	Endpoints          int            `json:"endpoints"`
@@ -60,7 +66,22 @@ type Stats struct {
 	SuspiciousPackages int            `json:"suspicious_packages"`
 	ByEcosystem        map[string]int `json:"by_ecosystem"`
 	ByOutcome          map[string]int `json:"by_outcome"`
+	EventsPerDay       []DayBucket    `json:"events_per_day"`
 	RecentEvents       []Event        `json:"recent_events"`
+}
+
+// PackageStat holds a name/count pair for top-N rankings.
+type PackageStat struct {
+	Name      string `json:"name"`
+	Ecosystem string `json:"ecosystem,omitempty"`
+	Count     int    `json:"count"`
+}
+
+// PackageStats is returned by GET /api/package-stats.
+type PackageStats struct {
+	TopPackages   []PackageStat `json:"top_packages"`
+	TopEcosystems []PackageStat `json:"top_ecosystems"`
+	TopEndpoints  []PackageStat `json:"top_endpoints"`
 }
 
 // EndpointInfo represents a unique endpoint seen in events.
@@ -210,6 +231,22 @@ func Aggregate(events []Event) Stats {
 		}
 	}
 
+	// events per day
+	dayCount := make(map[string]int)
+	for _, ev := range events {
+		day := ev.ReceivedAt.UTC().Format("2006-01-02")
+		dayCount[day]++
+	}
+	dayKeys := make([]string, 0, len(dayCount))
+	for d := range dayCount {
+		dayKeys = append(dayKeys, d)
+	}
+	sort.Strings(dayKeys)
+	eventsPerDay := make([]DayBucket, 0, len(dayKeys))
+	for _, d := range dayKeys {
+		eventsPerDay = append(eventsPerDay, DayBucket{Date: d, Count: dayCount[d]})
+	}
+
 	// recent events: last 50, newest first
 	recent := make([]Event, len(events))
 	copy(recent, events)
@@ -229,7 +266,62 @@ func Aggregate(events []Event) Stats {
 		SuspiciousPackages: suspicious,
 		ByEcosystem:        byEcosystem,
 		ByOutcome:          byOutcome,
+		EventsPerDay:       eventsPerDay,
 		RecentEvents:       recent,
+	}
+}
+
+// ComputePackageStats returns top-10 packages, ecosystems, and endpoints by event count.
+func ComputePackageStats(events []Event) PackageStats {
+	pkgMap := make(map[string]PackageStat)
+	ecoMap := make(map[string]int)
+	epMap  := make(map[string]int)
+
+	for _, ev := range events {
+		if ev.EventType != "PACKAGE_DECISION" {
+			continue
+		}
+		if ev.PackageName != "" {
+			key := ev.Ecosystem + "|" + ev.PackageName
+			s := pkgMap[key]
+			s.Name = ev.PackageName
+			s.Ecosystem = ev.Ecosystem
+			s.Count++
+			pkgMap[key] = s
+		}
+		if ev.Ecosystem != "" {
+			ecoMap[ev.Ecosystem]++
+		}
+		if ev.EndpointID != "" {
+			epMap[ev.EndpointID]++
+		}
+	}
+
+	topN := func(list []PackageStat, n int) []PackageStat {
+		sort.Slice(list, func(i, j int) bool { return list[i].Count > list[j].Count })
+		if len(list) > n {
+			return list[:n]
+		}
+		return list
+	}
+
+	pkgs := make([]PackageStat, 0, len(pkgMap))
+	for _, v := range pkgMap {
+		pkgs = append(pkgs, v)
+	}
+	ecos := make([]PackageStat, 0, len(ecoMap))
+	for k, v := range ecoMap {
+		ecos = append(ecos, PackageStat{Name: k, Count: v})
+	}
+	eps := make([]PackageStat, 0, len(epMap))
+	for k, v := range epMap {
+		eps = append(eps, PackageStat{Name: k, Count: v})
+	}
+
+	return PackageStats{
+		TopPackages:   topN(pkgs, 10),
+		TopEcosystems: topN(ecos, 10),
+		TopEndpoints:  topN(eps, 10),
 	}
 }
 

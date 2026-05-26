@@ -103,6 +103,17 @@ func Handler(dataDir string, mirror *MalwareMirror) http.Handler {
 		writeJSON(w, events)
 	})
 
+	// API: package stats — top packages, ecosystems, endpoints by install count
+	mux.HandleFunc("/api/package-stats", func(w http.ResponseWriter, r *http.Request) {
+		days := parseDays(r, 30)
+		events, err := reader.LoadEvents(days)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		writeJSON(w, ComputePackageStats(events))
+	})
+
 	// API: endpoints
 	mux.HandleFunc("/api/endpoints", func(w http.ResponseWriter, r *http.Request) {
 		events, err := reader.LoadEvents(0) // all time
