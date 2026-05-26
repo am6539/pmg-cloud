@@ -559,11 +559,17 @@ func Handler(dataDir string, deps HandlerDeps) http.Handler {
 	if deps.Users != nil && deps.Sessions != nil {
 		users := deps.Users
 		sessions := deps.Sessions
+		loginRL := newIPRateLimiter()
 
 		// POST /auth/login — no session required
 		mux.HandleFunc("/auth/login", func(w http.ResponseWriter, r *http.Request) {
 			if r.Method != http.MethodPost {
 				http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+				return
+			}
+			if !loginRL.Allow(realIP(r)) {
+				w.Header().Set("Content-Type", "application/json")
+				http.Error(w, `{"error":"too many login attempts, try again later"}`, http.StatusTooManyRequests)
 				return
 			}
 			var creds struct {
@@ -656,6 +662,10 @@ func Handler(dataDir string, deps HandlerDeps) http.Handler {
 				http.Error(w, err.Error(), http.StatusBadRequest)
 				return
 			}
+			// Invalidate all other sessions so old devices are kicked out.
+			if c, err := r.Cookie(SessionCookieName); err == nil {
+				sessions.DeleteByUserExcept(s.UserID, c.Value)
+			}
 			if deps.Audit != nil {
 				deps.Audit.Log("password_changed", s.Username, "self")
 			}
@@ -732,6 +742,7 @@ func Handler(dataDir string, deps HandlerDeps) http.Handler {
 						http.Error(w, err.Error(), http.StatusBadRequest)
 						return
 					}
+					sessions.DeleteByUser(uid)
 					if deps.Audit != nil {
 						u, _ := users.FindByID(uid)
 						deps.Audit.Log("password_changed", u.Username, fmt.Sprintf("by=%s", s.Username))
@@ -807,14 +818,6 @@ func sessionMiddleware(h http.Handler, sessions *SessionStore) http.Handler {
 		}
 		r = r.WithContext(context.WithValue(r.Context(), ctxSession, s))
 		h.ServeHTTP(w, r)
-	})
-}
-
-// HealthzHandler returns a minimal health-check handler suitable for use
-// outside any auth middleware (load balancers, Docker HEALTHCHECK, etc.).
-func HealthzHandler() http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		writeJSON(w, map[string]bool{"ok": true})
 	})
 }
 

@@ -166,7 +166,7 @@ func main() {
 			// /healthz is always unauthenticated (load balancers, Docker HEALTHCHECK).
 			// Session-based auth is handled inside dashboard.Handler for all /api/* routes.
 			mux := http.NewServeMux()
-			mux.Handle("/healthz", dashboard.HealthzHandler())
+			mux.Handle("/healthz", dashboard.HealthzHandler(*dataDir, mirror))
 			mux.Handle("/", dashboard.Handler(*dataDir, deps))
 			if err := http.Serve(ln, mux); err != nil {
 				slog.Error("dashboard error", "err", err)

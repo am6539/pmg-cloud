@@ -118,9 +118,16 @@ hr{border:none;border-top:1px solid var(--bd);margin:13px 0}
 code{background:var(--hv);padding:1px 5px;border-radius:4px;font-family:monospace;font-size:12px}
 .login-overlay{position:fixed;inset:0;background:rgba(15,23,42,.75);z-index:200;display:flex;align-items:center;justify-content:center;backdrop-filter:blur(4px)}
 .login-box{background:var(--sf);border:1px solid var(--bd);border-radius:14px;padding:32px 36px;width:340px;max-width:94vw;box-shadow:var(--sh2)}
+.toast-container{position:fixed;bottom:20px;right:20px;z-index:300;display:flex;flex-direction:column;gap:8px;pointer-events:none}
+.toast{padding:10px 16px;border-radius:8px;font-size:13px;font-weight:500;box-shadow:var(--sh2);opacity:0;transform:translateY(8px);transition:opacity .2s,transform .2s;pointer-events:auto;max-width:320px;word-break:break-word}
+.toast.show{opacity:1;transform:translateY(0)}
+.toast-success{background:#052e16;color:#4ade80;border:1px solid #166534}
+.toast-error{background:#450a0a;color:#fca5a5;border:1px solid #991b1b}
+.toast-info{background:var(--sf);color:var(--tx2);border:1px solid var(--bd)}
 </style>
 </head>
 <body>
+<div id="toast-container" class="toast-container"></div>
 <nav class="sidebar">
   <div class="sidebar-logo">
     <strong>&#11043; PMG Cloud</strong>
@@ -208,6 +215,16 @@ code{background:var(--hv);padding:1px 5px;border-radius:4px;font-family:monospac
 </div>
 
 <script>
+/* ---- TOAST ---- */
+function showToast(msg,type){
+  var c=document.getElementById('toast-container');if(!c)return;
+  var t=document.createElement('div');
+  t.className='toast toast-'+(type||'info');
+  t.textContent=msg;
+  c.appendChild(t);
+  requestAnimationFrame(function(){requestAnimationFrame(function(){t.classList.add('show');});});
+  setTimeout(function(){t.classList.remove('show');setTimeout(function(){if(t.parentNode)t.parentNode.removeChild(t);},220);},3000);
+}
 /* ---- STATE ---- */
 var S={page:'dashboard',group:'',days:30,from:'',to:'',useRange:false,evOffset:0,evFilter:{type:'',action:'',malware:''},pkgTab:0,dark:localStorage.dark==='1',groups:[],config:null,me:null};
 
@@ -350,27 +367,27 @@ async function createUserAccount(){
   if(!user||!pass)return;
   try{
     var r=await fetch('/api/users',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:user,password:pass,role:role})});
-    if(!r.ok){var d=await r.json().catch(function(){return{};});alert(d.error||'Error');return;}
+    if(!r.ok){var d=await r.json().catch(function(){return{};});showToast(d.error||'Error','error');return;}
     closeModal();await renderSettings();
-  }catch(e){alert(e.message);}
+  }catch(e){showToast(e.message,'error');}
 }
 
 async function toggleUserRole(id,currentRole){
   var newRole=currentRole==='admin'?'viewer':'admin';
   try{
     var r=await fetch('/api/users/'+id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({role:newRole})});
-    if(!r.ok){var d=await r.json().catch(function(){return{};});alert(d.error||'Error');return;}
+    if(!r.ok){var d=await r.json().catch(function(){return{};});showToast(d.error||'Error','error');return;}
     await renderSettings();
-  }catch(e){alert(e.message);}
+  }catch(e){showToast(e.message,'error');}
 }
 
 async function deleteUser(id,username){
   if(!confirm('Delete user "'+username+'"? This cannot be undone.'))return;
   try{
     var r=await fetch('/api/users/'+id,{method:'DELETE'});
-    if(!r.ok){var d=await r.json().catch(function(){return{};});alert(d.error||'Error');return;}
+    if(!r.ok){var d=await r.json().catch(function(){return{};});showToast(d.error||'Error','error');return;}
     await renderSettings();
-  }catch(e){alert(e.message);}
+  }catch(e){showToast(e.message,'error');}
 }
 
 async function api(path){
@@ -753,7 +770,7 @@ async function renderMalware(){
 '<div class="kpi-grid">'+
 '<div class="kpi'+(!npm.ok?' danger':'')+'"><div class="kpi-lbl">NPM Feed</div><div class="kpi-val" style="font-size:20px">'+(npm.ok?bdg('OK','green'):bdg('ERROR','red'))+'</div><div class="kpi-delta">'+(npm.count?fmt(npm.count)+' entries':'')+'</div></div>'+
 '<div class="kpi'+(!pypi.ok?' danger':'')+'"><div class="kpi-lbl">PyPI Feed</div><div class="kpi-val" style="font-size:20px">'+(pypi.ok?bdg('OK','green'):bdg('ERROR','red'))+'</div><div class="kpi-delta">'+(pypi.count?fmt(pypi.count)+' entries':'')+'</div></div>'+
-'<div class="kpi"><div class="kpi-lbl">Last Refreshed</div><div class="kpi-val" style="font-size:15px;line-height:1.4">'+fmtDate(npm.last_refreshed)+'</div></div>'+
+'<div class="kpi"><div class="kpi-lbl">Last Refreshed</div><div class="kpi-val" style="font-size:15px;line-height:1.4">'+fmtDate(npm.last_updated)+'</div></div>'+
 '</div>'+
 '<div class="card">'+
 '<div class="card-title">Aikido Malware Intelligence</div>'+
@@ -765,7 +782,7 @@ async function renderMalware(){
 async function refreshFeed(btn){
   btn.disabled=true;btn.textContent='Refreshing…';
   try{var r=await fetch('/api/malware/refresh',{method:'POST'});if(!r.ok)throw new Error(await r.text());await renderMalware();}
-  catch(e){alert('Refresh failed: '+e.message);btn.disabled=false;btn.textContent='↻ Refresh Feed Now';}
+  catch(e){showToast('Refresh failed: '+e.message,'error');btn.disabled=false;btn.textContent='↻ Refresh Feed Now';}
 }
 
 /* ---- GROUPS ---- */
@@ -823,13 +840,13 @@ async function createGroup(){
   try{
     await fetch('/api/groups',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:name})});
     closeModal();await renderGroups();await refreshGroupSel();
-  }catch(e){alert('Error: '+e.message);}
+  }catch(e){showToast('Error: '+e.message,'error');}
 }
 
 async function deleteGroup(id,name){
   if(!confirm('Delete group "'+name+'"? This cannot be undone.'))return;
   try{await fetch('/api/groups/'+id,{method:'DELETE'});await renderGroups();await refreshGroupSel();}
-  catch(e){alert('Error: '+e.message);}
+  catch(e){showToast('Error: '+e.message,'error');}
 }
 
 function openCreateKey(i){
@@ -857,7 +874,7 @@ async function createKey(gid){
     '<button class="btn btn-primary" id="copy-key-btn" onclick="copyKey(\''+safeSecret+'\')">&#128203; Copy Key</button>'+
     '<button class="btn btn-ghost" onclick="closeModal();renderGroups()">Done</button>'+
     '</div>');
-  }catch(e){alert('Error: '+e.message);}
+  }catch(e){showToast('Error: '+e.message,'error');}
 }
 
 function copyKey(safeStr){
@@ -868,7 +885,7 @@ function copyKey(safeStr){
 async function revokeKey(gid,kid,grpIdx){
   if(!confirm('Revoke this key? PMG agents using it will lose access.'))return;
   try{await fetch('/api/groups/'+gid+'/keys/'+kid,{method:'DELETE'});loadGroupKeys(grpIdx);}
-  catch(e){alert('Error: '+e.message);}
+  catch(e){showToast('Error: '+e.message,'error');}
 }
 
 async function refreshGroupSel(){
@@ -953,14 +970,14 @@ async function renderSettings(){
 
 async function saveRetention(){
   var days=parseInt(document.getElementById('cfg-ret').value)||0;
-  try{var c=await api('/api/config');c.retention_days=days;await fetch('/api/config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(c)});alert('Saved!');}
-  catch(e){alert('Error: '+e.message);}
+  try{var c=await api('/api/config');c.retention_days=days;await fetch('/api/config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(c)});showToast('Saved!','success');}
+  catch(e){showToast('Error: '+e.message,'error');}
 }
 async function saveAlerts(){
   var blk=parseInt(document.getElementById('cfg-blk').value)||0;
   var ml=document.getElementById('cfg-ml').checked;
-  try{var c=await api('/api/config');c.alert_config=Object.assign(c.alert_config||{},{blocked_per_minute:blk,malware_any:ml});await fetch('/api/config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(c)});S.config=c;alert('Saved!');}
-  catch(e){alert('Error: '+e.message);}
+  try{var c=await api('/api/config');c.alert_config=Object.assign(c.alert_config||{},{blocked_per_minute:blk,malware_any:ml});await fetch('/api/config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(c)});S.config=c;showToast('Saved!','success');}
+  catch(e){showToast('Error: '+e.message,'error');}
 }
 
 function openAddWebhook(){
@@ -979,16 +996,16 @@ async function addWebhook(){
       on_malware:!!(document.getElementById('wh-ml')||{}).checked,
       on_blocked:!!(document.getElementById('wh-bl')||{}).checked,enabled:true})});
     closeModal();await renderSettings();
-  }catch(e){alert('Error: '+e.message);}
+  }catch(e){showToast('Error: '+e.message,'error');}
 }
 async function toggleWebhook(id,enabled){
   try{var c=await api('/api/config');var w=(c.webhooks||[]).find(function(x){return x.id===id;});if(!w)return;await fetch('/api/config/webhooks/'+id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(Object.assign({},w,{enabled:enabled}))});await renderSettings();}
-  catch(e){alert('Error: '+e.message);}
+  catch(e){showToast('Error: '+e.message,'error');}
 }
 async function deleteWebhook(id){
   if(!confirm('Delete this webhook?'))return;
   try{await fetch('/api/config/webhooks/'+id,{method:'DELETE'});await renderSettings();}
-  catch(e){alert('Error: '+e.message);}
+  catch(e){showToast('Error: '+e.message,'error');}
 }
 
 /* ---- MODAL ---- */
@@ -1040,14 +1057,14 @@ async function wizStep1(){
     var g=await fetch('/api/groups',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:name})}).then(function(r){return r.json();});
     wizData.groupId=g.id;wizData.groupName=name;
     await refreshGroupSel();showWizard(1);
-  }catch(e){alert('Error: '+e.message);}
+  }catch(e){showToast('Error: '+e.message,'error');}
 }
 async function wizStep2(){
   var el=document.getElementById('wiz-kn');var kname=el?el.value.trim():'';
   try{
     var r=await fetch('/api/groups/'+wizData.groupId+'/keys',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:kname})}).then(function(x){return x.json();});
     wizData.secret=r.secret||'';showWizard(2);
-  }catch(e){alert('Error: '+e.message);}
+  }catch(e){showToast('Error: '+e.message,'error');}
 }
 </script>
 </body>

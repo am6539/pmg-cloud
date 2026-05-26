@@ -333,6 +333,28 @@ func (ss *SessionStore) Delete(id string) {
 	ss.mu.Unlock()
 }
 
+// DeleteByUser removes all sessions belonging to userID.
+func (ss *SessionStore) DeleteByUser(userID string) {
+	ss.mu.Lock()
+	defer ss.mu.Unlock()
+	for id, s := range ss.sessions {
+		if s.UserID == userID {
+			delete(ss.sessions, id)
+		}
+	}
+}
+
+// DeleteByUserExcept removes all sessions for userID except the given session ID.
+func (ss *SessionStore) DeleteByUserExcept(userID, exceptSID string) {
+	ss.mu.Lock()
+	defer ss.mu.Unlock()
+	for id, s := range ss.sessions {
+		if s.UserID == userID && id != exceptSID {
+			delete(ss.sessions, id)
+		}
+	}
+}
+
 func (ss *SessionStore) cleanupLoop() {
 	ticker := time.NewTicker(30 * time.Minute)
 	defer ticker.Stop()
