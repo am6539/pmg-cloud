@@ -82,7 +82,7 @@
       <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
       Dashboard
     </a>
-    <div class="nav-section">Threat &amp; Compliance</div>
+    <div class="nav-section">Inventory</div>
     <a class="nav-item" data-page="events" onclick="navigate('events')">
       <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
       Events
@@ -90,6 +90,24 @@
     <a class="nav-item" data-page="endpoints" onclick="navigate('endpoints')">
       <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
       Endpoints
+    </a>
+    <div class="nav-section">Intelligence</div>
+    <a class="nav-item" data-page="feeds" onclick="navigate('feeds')">
+      <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M4 11a9 9 0 0 1 9 9"/><path d="M4 4a16 16 0 0 1 16 16"/><circle cx="5" cy="19" r="1"/></svg>
+      Feed Status
+    </a>
+    <div class="nav-section">Threat &amp; Compliance</div>
+    <a class="nav-item" data-page="malicious" onclick="navigate('malicious')">
+      <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+      Malicious Packages
+    </a>
+    <a class="nav-item" data-page="violations" onclick="navigate('violations')">
+      <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg>
+      Policy Violations
+    </a>
+    <a class="nav-item" data-page="vulnerabilities" onclick="navigate('vulnerabilities')">
+      <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+      Vulnerabilities
     </a>
   </nav>
 </aside>
@@ -153,6 +171,80 @@
         </table>
       </div>
     </div>
+
+    <!-- Malicious Packages page -->
+    <div class="page" id="page-malicious">
+      <div class="section-title">
+        Malicious Packages
+        <span id="malicious-count"></span>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr>
+            <th>Time</th><th>Endpoint</th><th>Package</th><th>Version</th><th>Ecosystem</th><th>Action</th>
+          </tr></thead>
+          <tbody id="malicious-tbody"><tr><td colspan="6" class="loading">Loading&#8230;</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Policy Violations page -->
+    <div class="page" id="page-violations">
+      <div class="section-title">
+        Policy Violations
+        <span id="violations-count"></span>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr>
+            <th>Time</th><th>Endpoint</th><th>Package</th><th>Version</th><th>Ecosystem</th><th>Action</th><th>Malware</th>
+          </tr></thead>
+          <tbody id="violations-tbody"><tr><td colspan="7" class="loading">Loading&#8230;</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Feed Status page -->
+    <div class="page" id="page-feeds">
+      <div class="section-title">Aikido Intel Feed Status</div>
+      <div class="kpi-grid" id="feed-kpi-grid" style="grid-template-columns: repeat(2, 1fr)">
+        <div class="loading">Loading&#8230;</div>
+      </div>
+      <div style="margin-top:16px">
+        <div class="section-title">Feed URLs
+          <span style="font-size:12px;color:#6b7280;font-weight:400">Point <code>aikido_intel.base_url</code> at this server for air-gapped mode</span>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Ecosystem</th><th>URL</th><th>Description</th></tr></thead>
+            <tbody>
+              <tr>
+                <td><span class="badge badge-teal">npm</span></td>
+                <td><code id="npm-url"></code></td>
+                <td style="color:#6b7280">npm malware predictions feed</td>
+              </tr>
+              <tr>
+                <td><span class="badge badge-yellow">pypi</span></td>
+                <td><code id="pypi-url"></code></td>
+                <td style="color:#6b7280">PyPI malware feed</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- Vulnerabilities page -->
+    <div class="page" id="page-vulnerabilities">
+      <div class="section-title">Vulnerabilities</div>
+      <div class="table-wrap">
+        <div class="empty" style="padding:48px">
+          <svg fill="none" stroke="#d1d5db" stroke-width="1.5" viewBox="0 0 24 24" style="width:40px;height:40px;margin:0 auto 12px;display:block"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+          <div style="font-weight:600;color:#374151;margin-bottom:6px">CVE tracking not available</div>
+          <div>PMG focuses on supply-chain malware detection.<br>CVE vulnerability scanning is not currently collected by the agent.</div>
+        </div>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -160,14 +252,23 @@
 let currentPeriod = 30;
 let currentPage = 'dashboard';
 
+const PAGE_TITLES = {
+  dashboard:       'Dashboard',
+  events:          'Events',
+  endpoints:       'Endpoints',
+  feeds:           'Feed Status',
+  malicious:       'Malicious Packages',
+  violations:      'Policy Violations',
+  vulnerabilities: 'Vulnerabilities',
+};
+
 function navigate(page) {
   document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
   document.getElementById('page-' + page).classList.add('active');
   document.querySelectorAll('.nav-item').forEach(n => {
     n.classList.toggle('active', n.dataset.page === page);
   });
-  document.getElementById('page-title').textContent =
-    page === 'dashboard' ? 'Dashboard' : page === 'events' ? 'Events' : 'Endpoints';
+  document.getElementById('page-title').textContent = PAGE_TITLES[page] || page;
   currentPage = page;
   loadPage();
 }
@@ -181,19 +282,65 @@ function setPeriod(days) {
 }
 
 function loadPage() {
-  if (currentPage === 'dashboard') loadDashboard();
-  else if (currentPage === 'events') loadEvents();
-  else if (currentPage === 'endpoints') loadEndpoints();
+  if (currentPage === 'dashboard')       loadDashboard();
+  else if (currentPage === 'events')     loadEvents();
+  else if (currentPage === 'endpoints')  loadEndpoints();
+  else if (currentPage === 'feeds')      loadFeeds();
+  else if (currentPage === 'malicious')  loadMalicious();
+  else if (currentPage === 'violations') loadViolations();
+}
+
+async function loadFeeds() {
+  const origin = window.location.origin;
+  document.getElementById('npm-url').textContent  = origin + '/malware_predictions.json';
+  document.getElementById('pypi-url').textContent = origin + '/malware_pypi.json';
+
+  let status;
+  try {
+    const res = await fetch('/api/malware/status');
+    status = await res.json();
+  } catch (e) {
+    document.getElementById('feed-kpi-grid').innerHTML = `<div class="empty" style="grid-column:span 2">Failed to load feed status: ${e.message}</div>`;
+    return;
+  }
+
+  const feeds = [
+    { label: 'npm Feed',  eco: 'npm',  data: status.npm },
+    { label: 'PyPI Feed', eco: 'pypi', data: status.pypi },
+  ];
+
+  document.getElementById('feed-kpi-grid').innerHTML = feeds.map(f => {
+    const s = f.data || {};
+    const ok = s.ok;
+    const updated = s.last_updated ? new Date(s.last_updated).toLocaleString() : 'Never';
+    const bytes = s.bytes ? (s.bytes / 1024).toFixed(1) + ' KB' : '0 KB';
+    const statusBadge = ok
+      ? '<span class="badge badge-green">OK</span>'
+      : `<span class="badge badge-red">ERROR</span>`;
+    return `
+      <div class="kpi-card ${ok ? '' : 'danger'}" style="min-height:unset">
+        <div class="kpi-label">
+          <span class="badge ${f.eco === 'npm' ? 'badge-teal' : 'badge-yellow'}" style="font-size:12px">${f.eco}</span>
+          ${f.label}
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+          ${statusBadge}
+          ${s.error ? `<span style="font-size:12px;color:#dc2626">${s.error}</span>` : ''}
+        </div>
+        <div style="font-size:12px;color:#6b7280;line-height:1.8">
+          <div>Last updated: <strong style="color:#374151">${updated}</strong></div>
+          <div>Feed size: <strong style="color:#374151">${bytes}</strong></div>
+        </div>
+      </div>`;
+  }).join('');
 }
 
 async function loadDashboard() {
   const days = currentPeriod;
-  const [statsRes, eventsRes] = await Promise.all([
-    fetch('/api/stats?days=' + (days || 0)),
-    fetch('/api/events?days=' + (days || 0) + '&limit=20')
-  ]);
-  const stats = await statsRes.json();
-  const events = await eventsRes.json();
+  // Single request returns stats + recent_events together
+  const res = await fetch('/api/dashboard?days=' + (days || 0));
+  const stats = await res.json();
+  const events = stats.recent_events || [];
 
   const icons = {
     monitor: '<svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>',
@@ -228,6 +375,49 @@ async function loadEvents() {
   const events = await res.json();
   document.getElementById('events-page-count').textContent = events ? `${events.length} events` : '';
   document.getElementById('events-page-tbody').innerHTML = renderEventRows(events, 9);
+}
+
+async function loadMalicious() {
+  const res = await fetch('/api/events?malware=true&limit=500&days=' + (currentPeriod || 0));
+  const events = await res.json();
+  document.getElementById('malicious-count').textContent = events ? `${events.length} found` : '';
+  if (!events || events.length === 0) {
+    document.getElementById('malicious-tbody').innerHTML = '<tr><td colspan="6" class="empty">No malicious packages detected in this period &#x1F389;</td></tr>';
+    return;
+  }
+  document.getElementById('malicious-tbody').innerHTML = events.map(ev => `
+    <tr>
+      <td style="white-space:nowrap;color:#6b7280;font-size:12px">${ev.received_at ? new Date(ev.received_at).toLocaleString() : '&mdash;'}</td>
+      <td>${ev.endpoint_id    || '&mdash;'}</td>
+      <td style="font-weight:600;color:#dc2626">${ev.package_name    || '&mdash;'}</td>
+      <td>${ev.package_version || '&mdash;'}</td>
+      <td>${ev.ecosystem       || '&mdash;'}</td>
+      <td>${actionBadge(ev.action)}</td>
+    </tr>`).join('');
+}
+
+async function loadViolations() {
+  const res = await fetch('/api/events?action=BLOCKED,COOLDOWN_BLOCKED&limit=500&days=' + (currentPeriod || 0));
+  const events = await res.json();
+  document.getElementById('violations-count').textContent = events ? `${events.length} found` : '';
+  if (!events || events.length === 0) {
+    document.getElementById('violations-tbody').innerHTML = '<tr><td colspan="7" class="empty">No policy violations in this period &#x2705;</td></tr>';
+    return;
+  }
+  document.getElementById('violations-tbody').innerHTML = events.map(ev => {
+    const malware = ev.is_malware === true  ? '<span class="badge badge-red">YES</span>'
+                  : ev.is_malware === false ? '<span class="badge badge-green">No</span>'
+                  : '&mdash;';
+    return `<tr>
+      <td style="white-space:nowrap;color:#6b7280;font-size:12px">${ev.received_at ? new Date(ev.received_at).toLocaleString() : '&mdash;'}</td>
+      <td>${ev.endpoint_id     || '&mdash;'}</td>
+      <td style="font-weight:500">${ev.package_name    || '&mdash;'}</td>
+      <td>${ev.package_version || '&mdash;'}</td>
+      <td>${ev.ecosystem       || '&mdash;'}</td>
+      <td>${actionBadge(ev.action)}</td>
+      <td>${malware}</td>
+    </tr>`;
+  }).join('');
 }
 
 async function loadEndpoints() {

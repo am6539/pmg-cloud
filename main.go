@@ -88,8 +88,16 @@ func main() {
 
 	if *httpAddr != "" {
 		go func() {
+			// Use tcp4 explicitly — Go defaults to IPv6-only on Linux/WSL2,
+			// which prevents Windows browsers from connecting via localhost.
+			ln, err := net.Listen("tcp4", *httpAddr)
+			if err != nil {
+				slog.Error("dashboard listen error", "addr", *httpAddr, "err", err)
+				return
+			}
 			slog.Info("dashboard started", "addr", *httpAddr)
-			if err := http.ListenAndServe(*httpAddr, dashboard.Handler(*dataDir)); err != nil {
+			mirror := dashboard.NewMalwareMirror(*dataDir + "/aikido-mirror")
+			if err := http.Serve(ln, dashboard.Handler(*dataDir, mirror)); err != nil {
 				slog.Error("dashboard error", "err", err)
 			}
 		}()
