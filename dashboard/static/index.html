@@ -931,6 +931,7 @@ function typeBadge(type) {
 // ── Groups ────────────────────────────────────────────────────────────────────
 
 let groupsList = [];
+let keysList = [];
 let selectedGroupID = null;
 let selectedGroupName = '';
 
@@ -955,25 +956,27 @@ function renderGroupsList() {
     tbody.innerHTML = '<tr><td colspan="4" class="empty">No groups yet. Create one to get started.</td></tr>';
     return;
   }
-  tbody.innerHTML = groupsList.map(g => {
+  tbody.innerHTML = groupsList.map((g, i) => {
     const isSelected = g.id === selectedGroupID;
-    return `<tr style="${isSelected ? 'background:#f0fdfa' : ''};cursor:pointer" onclick="selectGroup('${g.id}', ${JSON.stringify(g.name)})">
+    return `<tr style="${isSelected ? 'background:#f0fdfa' : ''};cursor:pointer" onclick="selectGroupByIdx(${i})">
       <td style="font-weight:${isSelected ? '600' : '400'};color:${isSelected ? '#0D9488' : '#111827'}">${escapeHTML(g.name)}</td>
       <td style="text-align:right">${g.key_count || 0}</td>
       <td style="font-size:12px;color:#6b7280">${g.created_at ? new Date(g.created_at).toLocaleDateString() : '&mdash;'}</td>
       <td>
-        <button class="btn-danger-sm" onclick="event.stopPropagation();deleteGroup('${g.id}', ${JSON.stringify(g.name)})">Delete</button>
+        <button class="btn-danger-sm" onclick="event.stopPropagation();deleteGroupByIdx(${i})">Delete</button>
       </td>
     </tr>`;
   }).join('');
 }
 
-function selectGroup(id, name) {
-  selectedGroupID = id;
-  selectedGroupName = name;
+function selectGroupByIdx(i) {
+  const g = groupsList[i];
+  if (!g) return;
+  selectedGroupID = g.id;
+  selectedGroupName = g.name;
   renderGroupsList();
   document.getElementById('keys-placeholder').style.display = 'none';
-  loadKeys(id, name);
+  loadKeys(g.id, g.name);
 }
 
 async function loadKeys(groupID, groupName) {
@@ -982,37 +985,42 @@ async function loadKeys(groupID, groupName) {
   document.getElementById('keys-panel-group-name').textContent = groupName;
   document.getElementById('keys-tbody').innerHTML = '<tr><td colspan="4" class="loading">Loading&hellip;</td></tr>';
   const res = await fetch(`/api/groups/${encodeURIComponent(groupID)}/keys`);
-  const keys = await res.json();
-  if (!keys || keys.length === 0) {
+  keysList = await res.json() || [];
+  if (!keysList.length) {
     document.getElementById('keys-tbody').innerHTML =
       '<tr><td colspan="4" class="empty">No keys yet.</td></tr>';
     return;
   }
-  document.getElementById('keys-tbody').innerHTML = keys.map(k => `
+  document.getElementById('keys-tbody').innerHTML = keysList.map((k, i) => `
     <tr>
       <td style="font-weight:500">${escapeHTML(k.name)}</td>
       <td><code style="font-size:11px;color:#6b7280">${escapeHTML(k.key_prefix)}…</code></td>
       <td style="font-size:12px;color:#6b7280">${k.created_at ? new Date(k.created_at).toLocaleDateString() : '&mdash;'}</td>
-      <td><button class="btn-danger-sm" onclick="revokeKey('${escapeHTML(k.id)}', ${JSON.stringify(k.name)})">Revoke</button></td>
+      <td><button class="btn-danger-sm" onclick="revokeKeyByIdx(${i})">Revoke</button></td>
     </tr>`).join('');
 }
 
-async function deleteGroup(id, name) {
-  if (!confirm(`Delete group "${name}"? This will also revoke all its API keys.`)) return;
-  const res = await fetch(`/api/groups/${encodeURIComponent(id)}`, { method: 'DELETE' });
+async function deleteGroupByIdx(i) {
+  const g = groupsList[i];
+  if (!g) return;
+  if (!confirm(`Delete group "${g.name}"? This will also revoke all its API keys.`)) return;
+  const res = await fetch(`/api/groups/${encodeURIComponent(g.id)}`, { method: 'DELETE' });
   if (!res.ok) { alert('Error: ' + (await res.text())); return; }
-  if (selectedGroupID === id) {
+  if (selectedGroupID === g.id) {
     selectedGroupID = null;
     selectedGroupName = '';
     document.getElementById('keys-panel').style.display = 'none';
+    document.getElementById('keys-placeholder').style.display = '';
   }
   loadGroups();
 }
 
-async function revokeKey(keyID, keyName) {
-  if (!confirm(`Revoke key "${keyName}"? Agents using this key will immediately lose access.`)) return;
+async function revokeKeyByIdx(i) {
+  const k = keysList[i];
+  if (!k) return;
+  if (!confirm(`Revoke key "${k.name}"? Agents using this key will immediately lose access.`)) return;
   const res = await fetch(
-    `/api/groups/${encodeURIComponent(selectedGroupID)}/keys/${encodeURIComponent(keyID)}`,
+    `/api/groups/${encodeURIComponent(selectedGroupID)}/keys/${encodeURIComponent(k.id)}`,
     { method: 'DELETE' }
   );
   if (!res.ok) { alert('Error: ' + (await res.text())); return; }
