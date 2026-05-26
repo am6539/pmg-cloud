@@ -20,7 +20,7 @@ import (
 // newServer creates a Server backed by a temp dir for test isolation.
 func newServer(t *testing.T, apiKeys []string) *Server {
 	t.Helper()
-	s, err := New(t.TempDir(), apiKeys)
+	s, err := New(t.TempDir(), apiKeys, nil)
 	require.NoError(t, err)
 	return s
 }
@@ -89,7 +89,7 @@ func TestSyncEvents_MissingAPIKeyRejected(t *testing.T) {
 
 func TestSyncEvents_StoresEventsToJSONLFile(t *testing.T) {
 	dir := t.TempDir()
-	s, err := New(dir, nil)
+	s, err := New(dir, nil, nil)
 	require.NoError(t, err)
 
 	ctx := ctxWithTenantAndAuth("tenant-abc", "")
