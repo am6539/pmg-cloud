@@ -221,13 +221,21 @@
 
     <!-- Endpoints page -->
     <div class="page" id="page-endpoints">
-      <div class="section-title">Endpoints</div>
-      <div class="table-wrap">
-        <table>
+      <div class="section-title">Endpoints <span id="endpoints-count"></span></div>
+      <div class="table-wrap" style="overflow-x:auto">
+        <table style="min-width:900px">
           <thead><tr>
-            <th>Endpoint ID</th><th>Hostname</th><th>OS</th><th>Arch</th><th>Sessions</th><th>Last Seen</th>
+            <th>Endpoint</th>
+            <th>Host / OS</th>
+            <th>PMG Version</th>
+            <th>Package Managers</th>
+            <th>Sessions</th>
+            <th>Packages</th>
+            <th>Blocked</th>
+            <th>Modes</th>
+            <th>Last Seen</th>
           </tr></thead>
-          <tbody id="endpoints-tbody"><tr><td colspan="6" class="loading">Loading&#8230;</td></tr></tbody>
+          <tbody id="endpoints-tbody"><tr><td colspan="9" class="loading">Loading&#8230;</td></tr></tbody>
         </table>
       </div>
     </div>
@@ -545,20 +553,51 @@ async function loadViolations() {
 async function loadEndpoints() {
   const res = await fetch('/api/endpoints');
   const eps = await res.json();
+  document.getElementById('endpoints-count').textContent = eps ? `${eps.length} total` : '';
   if (!eps || eps.length === 0) {
     document.getElementById('endpoints-tbody').innerHTML =
-      '<tr><td colspan="6" class="empty">No endpoints yet</td></tr>';
+      '<tr><td colspan="9" class="empty">No endpoints yet</td></tr>';
     return;
   }
-  document.getElementById('endpoints-tbody').innerHTML = eps.map(ep => `
-    <tr>
-      <td style="font-family:monospace;font-size:12px">${ep.endpoint_id || '&mdash;'}</td>
-      <td>${ep.hostname || '&mdash;'}</td>
-      <td>${ep.os       || '&mdash;'}</td>
-      <td>${ep.arch     || '&mdash;'}</td>
-      <td>${ep.sessions || 0}</td>
-      <td style="font-size:12px;color:#6b7280">${ep.last_seen ? new Date(ep.last_seen).toLocaleString() : '&mdash;'}</td>
-    </tr>`).join('');
+  document.getElementById('endpoints-tbody').innerHTML = eps.map(ep => {
+    const machineShort = ep.machine_id ? ep.machine_id.slice(0, 12) + '…' : '';
+    const osArch = [ep.os, ep.arch].filter(Boolean).join(' / ');
+    const version = ep.tool_version
+      ? `<span style="font-family:monospace;font-size:11px;color:#6b7280">${ep.tool_version.replace(/\+.*$/, '')}</span>`
+      : '&mdash;';
+    const pms = (ep.package_managers || []).map(pm =>
+      `<span class="badge badge-teal" style="font-size:10px;margin:1px">${pm}</span>`).join('') || '&mdash;';
+    const flows = (ep.flow_types || []).map(ft =>
+      `<span class="badge badge-gray" style="font-size:10px;margin:1px">${ft}</span>`).join('');
+    const modeBadge = (val, label, on, off) => val === true
+      ? `<span class="badge badge-green" style="font-size:10px;margin:1px" title="${label}">${on}</span>`
+      : val === false
+      ? `<span class="badge badge-gray"  style="font-size:10px;margin:1px;opacity:.5" title="${label}">${off}</span>`
+      : '';
+    const modes = [
+      modeBadge(ep.sandbox_enabled,    'Sandbox',    'SBX', 'sbx'),
+      modeBadge(ep.paranoid_mode,      'Paranoid',   'PRN', 'prn'),
+      modeBadge(ep.transitive_enabled, 'Transitive', 'TRN', 'trn'),
+    ].join('') || '&mdash;';
+
+    return `<tr>
+      <td>
+        <div style="font-weight:500;font-size:13px">${ep.endpoint_id || '&mdash;'}</div>
+        ${machineShort ? `<div style="font-size:10px;color:#9ca3af;font-family:monospace">${machineShort}</div>` : ''}
+      </td>
+      <td>
+        <div>${ep.hostname || '&mdash;'}</div>
+        ${osArch ? `<div style="font-size:11px;color:#9ca3af">${osArch}</div>` : ''}
+      </td>
+      <td>${version}</td>
+      <td>${pms}${flows ? `<div style="margin-top:2px">${flows}</div>` : ''}</td>
+      <td style="text-align:right">${ep.sessions || 0}</td>
+      <td style="text-align:right">${(ep.total_packages || 0).toLocaleString()}</td>
+      <td style="text-align:right;color:${(ep.blocked_packages||0)>0?'#dc2626':'#374151'}">${(ep.blocked_packages || 0).toLocaleString()}</td>
+      <td style="white-space:nowrap">${modes}</td>
+      <td style="font-size:12px;color:#6b7280;white-space:nowrap">${ep.last_seen ? new Date(ep.last_seen).toLocaleString() : '&mdash;'}</td>
+    </tr>`;
+  }).join('');
 }
 
 // ── Feed Status ───────────────────────────────────────────────────────────────

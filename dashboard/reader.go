@@ -86,13 +86,21 @@ type PackageStats struct {
 
 // EndpointInfo represents a unique endpoint seen in events.
 type EndpointInfo struct {
-	EndpointID string    `json:"endpoint_id"`
-	MachineID  string    `json:"machine_id"`
-	Hostname   string    `json:"hostname"`
-	OS         string    `json:"os"`
-	Arch       string    `json:"arch"`
-	LastSeen   time.Time `json:"last_seen"`
-	Sessions   int       `json:"sessions"`
+	EndpointID        string    `json:"endpoint_id"`
+	MachineID         string    `json:"machine_id"`
+	Hostname          string    `json:"hostname"`
+	OS                string    `json:"os"`
+	Arch              string    `json:"arch"`
+	LastSeen          time.Time `json:"last_seen"`
+	Sessions          int       `json:"sessions"`
+	ToolVersion       string    `json:"tool_version"`
+	PackageManagers   []string  `json:"package_managers"`
+	FlowTypes         []string  `json:"flow_types"`
+	TotalPackages     uint64    `json:"total_packages"`
+	BlockedPackages   uint64    `json:"blocked_packages"`
+	SandboxEnabled    *bool     `json:"sandbox_enabled"`
+	ParanoidMode      *bool     `json:"paranoid_mode"`
+	TransitiveEnabled *bool     `json:"transitive_enabled"`
 }
 
 // Reader reads events from JSONL files in a directory.
@@ -327,32 +335,74 @@ func ComputePackageStats(events []Event) PackageStats {
 
 // EndpointList returns deduplicated endpoint info sorted by last seen descending.
 func EndpointList(events []Event) []EndpointInfo {
-	m := make(map[string]*EndpointInfo)
+	type epState struct {
+		info          EndpointInfo
+		pkgManagers   map[string]struct{}
+		flowTypes     map[string]struct{}
+		latestSession time.Time
+	}
+
+	m := make(map[string]*epState)
+
 	for _, ev := range events {
 		if ev.EndpointID == "" {
 			continue
 		}
-		ep, ok := m[ev.EndpointID]
+		st, ok := m[ev.EndpointID]
 		if !ok {
-			ep = &EndpointInfo{
-				EndpointID: ev.EndpointID,
-				MachineID:  ev.MachineID,
-				Hostname:   ev.Hostname,
-				OS:         ev.OS,
-				Arch:       ev.Arch,
+			st = &epState{
+				info: EndpointInfo{
+					EndpointID: ev.EndpointID,
+					MachineID:  ev.MachineID,
+					Hostname:   ev.Hostname,
+					OS:         ev.OS,
+					Arch:       ev.Arch,
+				},
+				pkgManagers: make(map[string]struct{}),
+				flowTypes:   make(map[string]struct{}),
 			}
-			m[ev.EndpointID] = ep
+			m[ev.EndpointID] = st
 		}
-		if ev.ReceivedAt.After(ep.LastSeen) {
-			ep.LastSeen = ev.ReceivedAt
+
+		if ev.ReceivedAt.After(st.info.LastSeen) {
+			st.info.LastSeen = ev.ReceivedAt
+			if ev.ToolVersion != "" {
+				st.info.ToolVersion = ev.ToolVersion
+			}
 		}
+
 		if ev.EventType == "SESSION_SUMMARY" {
-			ep.Sessions++
+			st.info.Sessions++
+			st.info.TotalPackages += uint64(ev.TotalAnalyzed)
+			st.info.BlockedPackages += uint64(ev.BlockedCount)
+			if ev.PackageManager != "" {
+				st.pkgManagers[ev.PackageManager] = struct{}{}
+			}
+			if ev.FlowType != "" {
+				st.flowTypes[ev.FlowType] = struct{}{}
+			}
+			// latest session determines mode flags
+			if ev.ReceivedAt.After(st.latestSession) {
+				st.latestSession = ev.ReceivedAt
+				st.info.SandboxEnabled    = ev.SandboxEnabled
+				st.info.ParanoidMode      = ev.ParanoidMode
+				st.info.TransitiveEnabled = ev.TransitiveEnabled
+			}
 		}
 	}
+
 	list := make([]EndpointInfo, 0, len(m))
-	for _, ep := range m {
-		list = append(list, *ep)
+	for _, st := range m {
+		ep := st.info
+		for pm := range st.pkgManagers {
+			ep.PackageManagers = append(ep.PackageManagers, pm)
+		}
+		sort.Strings(ep.PackageManagers)
+		for ft := range st.flowTypes {
+			ep.FlowTypes = append(ep.FlowTypes, ft)
+		}
+		sort.Strings(ep.FlowTypes)
+		list = append(list, ep)
 	}
 	sort.Slice(list, func(i, j int) bool {
 		return list[i].LastSeen.After(list[j].LastSeen)
