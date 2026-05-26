@@ -172,7 +172,7 @@ func (gs *GroupStore) CreateAPIKey(groupID, name string) (plaintext string, key 
 func (gs *GroupStore) ListAPIKeys(groupID string) []APIKey {
 	gs.mu.RLock()
 	defer gs.mu.RUnlock()
-	var out []APIKey
+	out := make([]APIKey, 0)
 	for _, k := range gs.data.APIKeys {
 		if k.GroupID == groupID {
 			out = append(out, k)

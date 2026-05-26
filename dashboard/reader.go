@@ -191,7 +191,7 @@ func (r *Reader) loadRangeFromDisk(from, to time.Time) ([]Event, error) {
 	fromDay := from.UTC().Truncate(24 * time.Hour)
 	toDay := to.UTC().Truncate(24 * time.Hour).Add(24 * time.Hour) // inclusive end
 
-	var events []Event
+	events := make([]Event, 0)
 	for _, f := range files {
 		base := filepath.Base(f)
 		dateStr := strings.TrimPrefix(strings.TrimSuffix(base, ".jsonl"), "events-")
@@ -235,7 +235,7 @@ func (r *Reader) loadFromDisk(days int) ([]Event, error) {
 		cutoff = time.Now().UTC().AddDate(0, 0, -days)
 	}
 
-	var events []Event
+	events := make([]Event, 0)
 	for _, f := range files {
 		// parse date from filename: events-YYYYMMDD.jsonl
 		base := filepath.Base(f)

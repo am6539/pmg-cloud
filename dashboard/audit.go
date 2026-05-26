@@ -74,7 +74,7 @@ func (al *AuditLog) Read(limit int) ([]AuditEntry, error) {
 	}
 	defer f.Close()
 
-	var entries []AuditEntry
+	entries := make([]AuditEntry, 0)
 	scanner := bufio.NewScanner(f)
 	for scanner.Scan() {
 		var e AuditEntry
