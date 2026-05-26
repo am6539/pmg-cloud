@@ -74,7 +74,13 @@ func main() {
 		})))
 	}
 
-	svc, err := server.New(*dataDir, apiKeys)
+	groups, err := dashboard.NewGroupStore(*dataDir)
+	if err != nil {
+		slog.Error("failed to open group store", "err", err)
+		os.Exit(1)
+	}
+
+	svc, err := server.New(*dataDir, apiKeys, groups)
 	if err != nil {
 		slog.Error("failed to create server", "err", err)
 		os.Exit(1)
@@ -92,8 +98,15 @@ func main() {
 	}
 
 	authMode := "no auth"
-	if len(apiKeys) > 0 {
-		authMode = fmt.Sprintf("%d API key(s)", len(apiKeys))
+	if groups.HasKeys() {
+		keyCounts := groups.KeyCount()
+		total := 0
+		for _, n := range keyCounts {
+			total += n
+		}
+		authMode = fmt.Sprintf("group-auth (%d groups, %d keys)", len(groups.ListGroups()), total)
+	} else if len(apiKeys) > 0 {
+		authMode = fmt.Sprintf("%d static API key(s)", len(apiKeys))
 	}
 	slog.Info("pmg-cloud started", "addr", *addr, "insecure", *insecure, "auth", authMode, "data_dir", *dataDir)
 
@@ -118,7 +131,7 @@ func main() {
 			mux := http.NewServeMux()
 			mux.Handle("/healthz", dashboard.HealthzHandler())
 			mux.Handle("/", dashboard.BasicAuthMiddleware(
-				dashboard.Handler(*dataDir, mirror),
+				dashboard.Handler(*dataDir, mirror, groups),
 				*dashUser, *dashPass,
 			))
 			if err := http.Serve(ln, mux); err != nil {

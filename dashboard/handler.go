@@ -16,7 +16,8 @@ var staticFiles embed.FS
 // Handler returns an http.Handler for the dashboard.
 // dataDir is the path to the JSONL event directory.
 // mirror serves the Aikido malware feeds for air-gapped PMG agents.
-func Handler(dataDir string, mirror *MalwareMirror) http.Handler {
+// groups manages group/API-key lifecycle; may be nil (groups features disabled).
+func Handler(dataDir string, mirror *MalwareMirror, groups *GroupStore) http.Handler {
 	reader := NewReader(dataDir)
 	mux := http.NewServeMux()
 
@@ -32,6 +33,7 @@ func Handler(dataDir string, mirror *MalwareMirror) http.Handler {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
+		events = filterByGroup(events, r.URL.Query().Get("group_id"))
 		writeJSON(w, Aggregate(events))
 	})
 
@@ -54,6 +56,7 @@ func Handler(dataDir string, mirror *MalwareMirror) http.Handler {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
+		events = filterByGroup(events, r.URL.Query().Get("group_id"))
 		// optional filter by event_type
 		if et := r.URL.Query().Get("event_type"); et != "" {
 			filtered := events[:0]
@@ -121,6 +124,7 @@ func Handler(dataDir string, mirror *MalwareMirror) http.Handler {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
+		events = filterByGroup(events, r.URL.Query().Get("group_id"))
 		writeJSON(w, EndpointList(events))
 	})
 
@@ -162,6 +166,123 @@ func Handler(dataDir string, mirror *MalwareMirror) http.Handler {
 		writeJSON(w, mirror.Status())
 	})
 
+	// Group management APIs — only registered when groups feature is enabled.
+	if groups != nil {
+		// GET  /api/groups        — list all groups with key counts
+		// POST /api/groups        — create group {name}
+		mux.HandleFunc("/api/groups", func(w http.ResponseWriter, r *http.Request) {
+			switch r.Method {
+			case http.MethodGet:
+				list := groups.ListGroups()
+				counts := groups.KeyCount()
+				type groupRow struct {
+					Group
+					KeyCount int `json:"key_count"`
+				}
+				rows := make([]groupRow, len(list))
+				for i, g := range list {
+					rows[i] = groupRow{Group: g, KeyCount: counts[g.ID]}
+				}
+				writeJSON(w, rows)
+
+			case http.MethodPost:
+				var body struct {
+					Name string `json:"name"`
+				}
+				if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+					http.Error(w, "invalid JSON", http.StatusBadRequest)
+					return
+				}
+				g, err := groups.CreateGroup(body.Name)
+				if err != nil {
+					http.Error(w, err.Error(), http.StatusBadRequest)
+					return
+				}
+				w.WriteHeader(http.StatusCreated)
+				writeJSON(w, g)
+
+			default:
+				http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			}
+		})
+
+		// DELETE /api/groups/{id}
+		mux.HandleFunc("/api/groups/", func(w http.ResponseWriter, r *http.Request) {
+			// path: /api/groups/{id}  or  /api/groups/{id}/keys  or  /api/groups/{id}/keys/{kid}
+			tail := strings.TrimPrefix(r.URL.Path, "/api/groups/")
+			parts := strings.SplitN(tail, "/", 3)
+
+			groupID := parts[0]
+			if groupID == "" {
+				http.NotFound(w, r)
+				return
+			}
+
+			// /api/groups/{id}
+			if len(parts) == 1 {
+				if r.Method != http.MethodDelete {
+					http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+					return
+				}
+				if err := groups.DeleteGroup(groupID); err != nil {
+					http.Error(w, err.Error(), http.StatusNotFound)
+					return
+				}
+				w.WriteHeader(http.StatusNoContent)
+				return
+			}
+
+			// /api/groups/{id}/keys[/{kid}]
+			if parts[1] != "keys" {
+				http.NotFound(w, r)
+				return
+			}
+
+			if len(parts) == 2 {
+				// GET /api/groups/{id}/keys  or  POST /api/groups/{id}/keys
+				switch r.Method {
+				case http.MethodGet:
+					writeJSON(w, groups.ListAPIKeys(groupID))
+
+				case http.MethodPost:
+					var body struct {
+						Name string `json:"name"`
+					}
+					if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+						http.Error(w, "invalid JSON", http.StatusBadRequest)
+						return
+					}
+					plaintext, key, err := groups.CreateAPIKey(groupID, body.Name)
+					if err != nil {
+						http.Error(w, err.Error(), http.StatusBadRequest)
+						return
+					}
+					w.WriteHeader(http.StatusCreated)
+					writeJSON(w, map[string]any{
+						"key":    key,
+						"secret": plaintext, // shown exactly once
+					})
+
+				default:
+					http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+				}
+				return
+			}
+
+			// DELETE /api/groups/{id}/keys/{kid}
+			keyID := parts[2]
+			if r.Method != http.MethodDelete {
+				http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+				return
+			}
+			if err := groups.RevokeAPIKey(groupID, keyID); err != nil {
+				http.Error(w, err.Error(), http.StatusNotFound)
+				return
+			}
+			w.WriteHeader(http.StatusNoContent)
+		})
+	}
+
 	return mux
 }
 
@@ -195,4 +316,17 @@ func parseDays(r *http.Request, def int) int {
 		}
 	}
 	return def
+}
+
+func filterByGroup(events []Event, groupID string) []Event {
+	if groupID == "" {
+		return events
+	}
+	out := events[:0]
+	for _, ev := range events {
+		if ev.GroupID == groupID {
+			out = append(out, ev)
+		}
+	}
+	return out
 }

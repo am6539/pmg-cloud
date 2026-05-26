@@ -13,6 +13,7 @@ import (
 
 // Event mirrors the on-disk storedEvent JSON structure.
 type Event struct {
+	GroupID      string     `json:"group_id"`
 	ReceivedAt   time.Time  `json:"received_at"`
 	TenantID     string     `json:"tenant_id"`
 	EventID      string     `json:"event_id"`

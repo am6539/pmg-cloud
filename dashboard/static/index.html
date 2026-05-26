@@ -95,6 +95,34 @@
   /* Package stats grid */
   .stats-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
   @media (max-width: 1100px) { .stats-grid { grid-template-columns: 1fr 1fr; } }
+
+  /* Modal */
+  .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,.4); display: flex; align-items: center; justify-content: center; z-index: 100; }
+  .modal-overlay.hidden { display: none; }
+  .modal { background: #fff; border-radius: 12px; padding: 24px; width: 400px; max-width: 95vw; box-shadow: 0 20px 60px rgba(0,0,0,.2); }
+  .modal h2 { font-size: 15px; font-weight: 700; color: #111827; margin-bottom: 16px; }
+  .modal label { display: block; font-size: 12px; font-weight: 600; color: #374151; margin-bottom: 5px; }
+  .modal input[type=text] { width: 100%; padding: 8px 10px; border: 1px solid #d1d5db; border-radius: 6px; font-size: 13px; outline: none; }
+  .modal input[type=text]:focus { border-color: #0D9488; box-shadow: 0 0 0 2px #ccfbf1; }
+  .modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px; }
+  .btn { padding: 7px 16px; border-radius: 6px; font-size: 13px; font-weight: 500; cursor: pointer; border: none; }
+  .btn-primary { background: #0D9488; color: #fff; }
+  .btn-primary:hover { background: #0f766e; }
+  .btn-primary:disabled { opacity: .5; cursor: not-allowed; }
+  .btn-ghost { background: #f3f4f6; color: #374151; }
+  .btn-ghost:hover { background: #e5e7eb; }
+  .btn-danger-sm { padding: 3px 10px; border-radius: 5px; font-size: 11px; font-weight: 500; cursor: pointer; border: none; background: #fef2f2; color: #dc2626; }
+  .btn-danger-sm:hover { background: #fee2e2; }
+  .secret-box { background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 6px; padding: 10px 12px; margin-top: 12px; }
+  .secret-box p { font-size: 11px; color: #16a34a; font-weight: 600; margin-bottom: 6px; }
+  .secret-row { display: flex; align-items: center; gap: 8px; }
+  .secret-row code { font-family: monospace; font-size: 11px; color: #166534; word-break: break-all; flex: 1; }
+
+  /* Groups layout */
+  .groups-split { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  @media (max-width: 900px) { .groups-split { grid-template-columns: 1fr; } }
+  .groups-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
+  .groups-header .section-title { margin-bottom: 0; }
 </style>
 </head>
 <body>
@@ -137,6 +165,11 @@
     <a class="nav-item" data-page="pkgstats" onclick="navigate('pkgstats')">
       <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
       Package Stats
+    </a>
+    <div class="nav-section">Management</div>
+    <a class="nav-item" data-page="groups" onclick="navigate('groups')">
+      <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+      Groups
     </a>
   </nav>
 </aside>
@@ -315,6 +348,78 @@
         <div class="loading" style="grid-column:span 3">Loading&#8230;</div>
       </div>
     </div>
+
+    <!-- Groups page -->
+    <div class="page" id="page-groups">
+      <div class="groups-split">
+        <!-- Left: group list -->
+        <div>
+          <div class="groups-header">
+            <div class="section-title">Groups</div>
+            <button class="btn btn-primary" onclick="openNewGroupModal()">+ New Group</button>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr>
+                <th>Name</th><th>Keys</th><th>Created</th><th></th>
+              </tr></thead>
+              <tbody id="groups-tbody"><tr><td colspan="4" class="loading">Loading&#8230;</td></tr></tbody>
+            </table>
+          </div>
+        </div>
+        <!-- Right: keys for selected group -->
+        <div id="keys-panel" style="display:none">
+          <div class="groups-header">
+            <div class="section-title">API Keys — <span id="keys-panel-group-name" style="color:#0D9488"></span></div>
+            <button class="btn btn-primary" onclick="openNewKeyModal()">+ New Key</button>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr>
+                <th>Name</th><th>Prefix</th><th>Created</th><th></th>
+              </tr></thead>
+              <tbody id="keys-tbody"><tr><td colspan="4" class="loading">Loading&#8230;</td></tr></tbody>
+            </table>
+          </div>
+          <p style="font-size:11px;color:#9ca3af;margin-top:8px">Keys are hashed on server. Plaintext is shown exactly once at creation.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- New Group modal -->
+<div class="modal-overlay hidden" id="modal-new-group" onclick="if(event.target===this)closeModal('modal-new-group')">
+  <div class="modal">
+    <h2>Create Group</h2>
+    <label for="new-group-name">Group name</label>
+    <input type="text" id="new-group-name" placeholder="e.g. Acme Corp" />
+    <div id="new-group-error" style="color:#dc2626;font-size:12px;margin-top:6px;display:none"></div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="closeModal('modal-new-group')">Cancel</button>
+      <button class="btn btn-primary" id="btn-create-group" onclick="createGroup()">Create</button>
+    </div>
+  </div>
+</div>
+
+<!-- New Key modal -->
+<div class="modal-overlay hidden" id="modal-new-key" onclick="if(event.target===this)closeModal('modal-new-key')">
+  <div class="modal">
+    <h2>Create API Key</h2>
+    <label for="new-key-name">Key name</label>
+    <input type="text" id="new-key-name" placeholder="e.g. Team Helpdesk" />
+    <div id="new-key-error" style="color:#dc2626;font-size:12px;margin-top:6px;display:none"></div>
+    <div id="new-key-secret" class="secret-box" style="display:none">
+      <p>&#128274; Copy this key now — it will not be shown again.</p>
+      <div class="secret-row">
+        <code id="new-key-secret-text"></code>
+        <button class="copy-btn" id="btn-copy-secret" onclick="copySecret()">Copy</button>
+      </div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" id="btn-cancel-key" onclick="closeModal('modal-new-key')">Cancel</button>
+      <button class="btn btn-primary" id="btn-create-key" onclick="createKey()">Create</button>
+    </div>
   </div>
 </div>
 
@@ -335,6 +440,7 @@ const PAGE_TITLES = {
   malicious: 'Malicious Packages',
   violations:'Policy Violations',
   pkgstats:  'Package Stats',
+  groups:    'Groups',
 };
 
 // ── Navigation ──────────────────────────────────────────────────────────────
@@ -367,6 +473,7 @@ function loadPage() {
   else if (p === 'malicious')  loadMalicious();
   else if (p === 'violations') loadViolations();
   else if (p === 'pkgstats')   loadPackageStats();
+  else if (p === 'groups')     loadGroups();
   markUpdated();
 }
 
@@ -814,6 +921,183 @@ function typeBadge(type) {
             : type === 'ERROR'            ? 'badge-red'
             : 'badge-yellow';
   return `<span class="badge ${cls}">${type.replace(/_/g,' ')}</span>`;
+}
+
+// ── Groups ────────────────────────────────────────────────────────────────────
+
+let groupsList = [];
+let selectedGroupID = null;
+let selectedGroupName = '';
+
+async function loadGroups() {
+  let rows;
+  try {
+    const res = await fetch('/api/groups');
+    rows = await res.json();
+  } catch (e) {
+    document.getElementById('groups-tbody').innerHTML =
+      `<tr><td colspan="4" class="empty">Failed to load: ${e.message}</td></tr>`;
+    return;
+  }
+  groupsList = rows || [];
+  renderGroupsList();
+  if (selectedGroupID) loadKeys(selectedGroupID, selectedGroupName);
+}
+
+function renderGroupsList() {
+  const tbody = document.getElementById('groups-tbody');
+  if (!groupsList.length) {
+    tbody.innerHTML = '<tr><td colspan="4" class="empty">No groups yet. Create one to get started.</td></tr>';
+    return;
+  }
+  tbody.innerHTML = groupsList.map(g => {
+    const isSelected = g.id === selectedGroupID;
+    return `<tr style="${isSelected ? 'background:#f0fdfa' : ''};cursor:pointer" onclick="selectGroup('${g.id}', ${JSON.stringify(g.name)})">
+      <td style="font-weight:${isSelected ? '600' : '400'};color:${isSelected ? '#0D9488' : '#111827'}">${escapeHTML(g.name)}</td>
+      <td style="text-align:right">${g.key_count || 0}</td>
+      <td style="font-size:12px;color:#6b7280">${g.created_at ? new Date(g.created_at).toLocaleDateString() : '&mdash;'}</td>
+      <td>
+        <button class="btn-danger-sm" onclick="event.stopPropagation();deleteGroup('${g.id}', ${JSON.stringify(g.name)})">Delete</button>
+      </td>
+    </tr>`;
+  }).join('');
+}
+
+function selectGroup(id, name) {
+  selectedGroupID = id;
+  selectedGroupName = name;
+  renderGroupsList();
+  loadKeys(id, name);
+}
+
+async function loadKeys(groupID, groupName) {
+  const panel = document.getElementById('keys-panel');
+  panel.style.display = '';
+  document.getElementById('keys-panel-group-name').textContent = groupName;
+  document.getElementById('keys-tbody').innerHTML = '<tr><td colspan="4" class="loading">Loading&hellip;</td></tr>';
+  const res = await fetch(`/api/groups/${encodeURIComponent(groupID)}/keys`);
+  const keys = await res.json();
+  if (!keys || keys.length === 0) {
+    document.getElementById('keys-tbody').innerHTML =
+      '<tr><td colspan="4" class="empty">No keys yet.</td></tr>';
+    return;
+  }
+  document.getElementById('keys-tbody').innerHTML = keys.map(k => `
+    <tr>
+      <td style="font-weight:500">${escapeHTML(k.name)}</td>
+      <td><code style="font-size:11px;color:#6b7280">${escapeHTML(k.key_prefix)}…</code></td>
+      <td style="font-size:12px;color:#6b7280">${k.created_at ? new Date(k.created_at).toLocaleDateString() : '&mdash;'}</td>
+      <td><button class="btn-danger-sm" onclick="revokeKey('${escapeHTML(k.id)}', ${JSON.stringify(k.name)})">Revoke</button></td>
+    </tr>`).join('');
+}
+
+async function deleteGroup(id, name) {
+  if (!confirm(`Delete group "${name}"? This will also revoke all its API keys.`)) return;
+  const res = await fetch(`/api/groups/${encodeURIComponent(id)}`, { method: 'DELETE' });
+  if (!res.ok) { alert('Error: ' + (await res.text())); return; }
+  if (selectedGroupID === id) {
+    selectedGroupID = null;
+    selectedGroupName = '';
+    document.getElementById('keys-panel').style.display = 'none';
+  }
+  loadGroups();
+}
+
+async function revokeKey(keyID, keyName) {
+  if (!confirm(`Revoke key "${keyName}"? Agents using this key will immediately lose access.`)) return;
+  const res = await fetch(
+    `/api/groups/${encodeURIComponent(selectedGroupID)}/keys/${encodeURIComponent(keyID)}`,
+    { method: 'DELETE' }
+  );
+  if (!res.ok) { alert('Error: ' + (await res.text())); return; }
+  loadGroups();
+}
+
+function openNewGroupModal() {
+  document.getElementById('new-group-name').value = '';
+  document.getElementById('new-group-error').style.display = 'none';
+  document.getElementById('btn-create-group').disabled = false;
+  document.getElementById('modal-new-group').classList.remove('hidden');
+  setTimeout(() => document.getElementById('new-group-name').focus(), 50);
+}
+
+async function createGroup() {
+  const name = document.getElementById('new-group-name').value.trim();
+  const errEl = document.getElementById('new-group-error');
+  errEl.style.display = 'none';
+  if (!name) { errEl.textContent = 'Name is required'; errEl.style.display = ''; return; }
+  document.getElementById('btn-create-group').disabled = true;
+  const res = await fetch('/api/groups', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name }),
+  });
+  if (!res.ok) {
+    errEl.textContent = await res.text();
+    errEl.style.display = '';
+    document.getElementById('btn-create-group').disabled = false;
+    return;
+  }
+  closeModal('modal-new-group');
+  loadGroups();
+}
+
+function openNewKeyModal() {
+  if (!selectedGroupID) return;
+  document.getElementById('new-key-name').value = '';
+  document.getElementById('new-key-error').style.display = 'none';
+  document.getElementById('new-key-secret').style.display = 'none';
+  document.getElementById('new-key-secret-text').textContent = '';
+  document.getElementById('btn-create-key').disabled = false;
+  document.getElementById('btn-create-key').style.display = '';
+  document.getElementById('btn-cancel-key').textContent = 'Cancel';
+  document.getElementById('modal-new-key').classList.remove('hidden');
+  setTimeout(() => document.getElementById('new-key-name').focus(), 50);
+}
+
+async function createKey() {
+  const name = document.getElementById('new-key-name').value.trim();
+  const errEl = document.getElementById('new-key-error');
+  errEl.style.display = 'none';
+  if (!name) { errEl.textContent = 'Name is required'; errEl.style.display = ''; return; }
+  document.getElementById('btn-create-key').disabled = true;
+  const res = await fetch(`/api/groups/${encodeURIComponent(selectedGroupID)}/keys`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name }),
+  });
+  if (!res.ok) {
+    errEl.textContent = await res.text();
+    errEl.style.display = '';
+    document.getElementById('btn-create-key').disabled = false;
+    return;
+  }
+  const data = await res.json();
+  // Show the plaintext key once
+  document.getElementById('new-key-secret-text').textContent = data.secret || '';
+  document.getElementById('new-key-secret').style.display = '';
+  document.getElementById('btn-create-key').style.display = 'none';
+  document.getElementById('btn-cancel-key').textContent = 'Done';
+  loadGroups();
+}
+
+function copySecret() {
+  const text = document.getElementById('new-key-secret-text').textContent;
+  const btn = document.getElementById('btn-copy-secret');
+  navigator.clipboard.writeText(text).catch(() => {
+    const ta = document.createElement('textarea');
+    ta.value = text; document.body.appendChild(ta); ta.select(); document.execCommand('copy'); document.body.removeChild(ta);
+  });
+  btn.textContent = 'Copied!'; btn.classList.add('copied');
+  setTimeout(() => { btn.textContent = 'Copy'; btn.classList.remove('copied'); }, 1500);
+}
+
+function closeModal(id) {
+  document.getElementById(id).classList.add('hidden');
+}
+
+function escapeHTML(s) {
+  return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 
 // ── Init ──────────────────────────────────────────────────────────────────────

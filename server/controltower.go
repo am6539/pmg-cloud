@@ -13,6 +13,7 @@ import (
 	controltowerv1grpc "buf.build/gen/go/safedep/api/grpc/go/safedep/services/controltower/v1/controltowerv1grpc"
 	ctv1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/messages/controltower/v1"
 	servicev1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/services/controltower/v1"
+	"github.com/yourorg/pmg-cloud/dashboard"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
@@ -24,7 +25,8 @@ type Server struct {
 	controltowerv1grpc.UnimplementedEndpointServiceServer
 
 	dataDir string
-	apiKeys map[string]struct{} // set of accepted API keys; empty = no auth
+	apiKeys map[string]struct{}   // static key set (backward compat); empty = no auth
+	groups  *dashboard.GroupStore // group-based auth; takes precedence when it has keys
 
 	mu      sync.Mutex
 	logFile *os.File
@@ -35,6 +37,9 @@ type Server struct {
 // Top-level fields are extracted for direct queryability with jq or other tools.
 // The raw "event" blob preserves everything for completeness.
 type storedEvent struct {
+	// --- routing ---
+	GroupID string `json:"group_id,omitempty"`
+
 	// --- always present ---
 	ReceivedAt   time.Time  `json:"received_at"`
 	TenantID     string     `json:"tenant_id,omitempty"`
@@ -93,20 +98,29 @@ type storedEvent struct {
 	Event json.RawMessage `json:"event"`
 }
 
-func New(dataDir string, apiKeys []string) (*Server, error) {
+func New(dataDir string, apiKeys []string, groups *dashboard.GroupStore) (*Server, error) {
 	keys := make(map[string]struct{}, len(apiKeys))
 	for _, k := range apiKeys {
 		if k != "" {
 			keys[k] = struct{}{}
 		}
 	}
-	return &Server{dataDir: dataDir, apiKeys: keys}, nil
+	return &Server{dataDir: dataDir, apiKeys: keys, groups: groups}, nil
 }
 
 func (s *Server) SyncEvents(ctx context.Context, req *servicev1.SyncEventsRequest) (*servicev1.SyncEventsResponse, error) {
 	tenantID, apiKey := credentialsFromContext(ctx)
 
-	if len(s.apiKeys) > 0 {
+	// Group-based auth takes precedence when the store has keys.
+	var groupID string
+	if s.groups != nil && s.groups.HasKeys() {
+		gid, ok := s.groups.ResolveKey(apiKey)
+		if !ok {
+			return nil, status.Error(codes.Unauthenticated, "invalid API key")
+		}
+		groupID = gid
+	} else if len(s.apiKeys) > 0 {
+		// Fall back to static key list (backward compat).
 		if _, ok := s.apiKeys[apiKey]; !ok {
 			return nil, status.Error(codes.Unauthenticated, "invalid API key")
 		}
@@ -117,7 +131,7 @@ func (s *Server) SyncEvents(ctx context.Context, req *servicev1.SyncEventsReques
 	var confirmedIDs []string
 	for _, ev := range req.GetEvents() {
 		id := ev.GetEventId()
-		if err := s.storeEvent(ev, endpoint, tenantID); err != nil {
+		if err := s.storeEvent(ev, endpoint, tenantID, groupID); err != nil {
 			slog.Error("failed to store event", "id", id, "err", err)
 			continue
 		}
@@ -132,13 +146,14 @@ func (s *Server) SyncEvents(ctx context.Context, req *servicev1.SyncEventsReques
 	return &servicev1.SyncEventsResponse{ConfirmedEventIds: confirmedIDs}, nil
 }
 
-func (s *Server) storeEvent(ev *servicev1.ToolEvent, endpoint *ctv1.EndpointIdentity, tenantID string) error {
+func (s *Server) storeEvent(ev *servicev1.ToolEvent, endpoint *ctv1.EndpointIdentity, tenantID, groupID string) error {
 	raw, err := json.Marshal(ev)
 	if err != nil {
 		return err
 	}
 
 	record := storedEvent{
+		GroupID:      groupID,
 		ReceivedAt:   time.Now().UTC(),
 		TenantID:     tenantID,
 		EventID:      ev.GetEventId(),
