@@ -206,7 +206,11 @@
 
     <!-- Feed Status page -->
     <div class="page" id="page-feeds">
-      <div class="section-title">Aikido Intel Feed Status</div>
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
+        <div class="section-title" style="margin-bottom:0">Aikido Intel Feed Status</div>
+        <button id="btn-refresh-feeds" onclick="refreshFeeds()" style="padding:6px 14px;background:#2563eb;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:13px">Refresh Feeds</button>
+      </div>
+      <div id="feed-refresh-msg" style="margin-bottom:8px;font-size:13px;color:#6b7280"></div>
       <div class="kpi-grid" id="feed-kpi-grid" style="grid-template-columns: repeat(2, 1fr)">
         <div class="loading">Loading&#8230;</div>
       </div>
@@ -333,6 +337,32 @@ async function loadFeeds() {
         </div>
       </div>`;
   }).join('');
+}
+
+async function refreshFeeds() {
+  const btn = document.getElementById('btn-refresh-feeds');
+  const msg = document.getElementById('feed-refresh-msg');
+  btn.disabled = true;
+  btn.textContent = 'Refreshing…';
+  msg.textContent = '';
+  try {
+    const res = await fetch('/api/malware/refresh', { method: 'POST' });
+    if (!res.ok) {
+      const text = await res.text();
+      msg.style.color = '#dc2626';
+      msg.textContent = 'Error: ' + text.trim();
+    } else {
+      msg.style.color = '#16a34a';
+      msg.textContent = 'Feeds refreshed successfully.';
+      await loadFeeds();
+    }
+  } catch (e) {
+    msg.style.color = '#dc2626';
+    msg.textContent = 'Error: ' + e.message;
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Refresh Feeds';
+  }
 }
 
 async function loadDashboard() {

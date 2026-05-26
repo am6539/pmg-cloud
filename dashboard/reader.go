@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -74,17 +75,46 @@ type EndpointInfo struct {
 }
 
 // Reader reads events from JSONL files in a directory.
+// Results are cached for cacheTTL to avoid re-reading on every API request.
 type Reader struct {
 	dataDir string
+	mu      sync.Mutex
+	cache   map[int]cachedLoad
+}
+
+const cacheTTL = 5 * time.Second
+
+type cachedLoad struct {
+	events   []Event
+	cachedAt time.Time
 }
 
 func NewReader(dataDir string) *Reader {
-	return &Reader{dataDir: dataDir}
+	return &Reader{dataDir: dataDir, cache: make(map[int]cachedLoad)}
 }
 
 // LoadEvents reads all events from JSONL files within the last `days` days.
-// Pass days=0 to read all files.
+// Pass days=0 to read all files. Results are cached for 5 seconds.
 func (r *Reader) LoadEvents(days int) ([]Event, error) {
+	r.mu.Lock()
+	if c, ok := r.cache[days]; ok && time.Since(c.cachedAt) < cacheTTL {
+		r.mu.Unlock()
+		return c.events, nil
+	}
+	r.mu.Unlock()
+
+	events, err := r.loadFromDisk(days)
+	if err != nil {
+		return nil, err
+	}
+
+	r.mu.Lock()
+	r.cache[days] = cachedLoad{events: events, cachedAt: time.Now()}
+	r.mu.Unlock()
+	return events, nil
+}
+
+func (r *Reader) loadFromDisk(days int) ([]Event, error) {
 	files, err := filepath.Glob(filepath.Join(r.dataDir, "events-*.jsonl"))
 	if err != nil {
 		return nil, err

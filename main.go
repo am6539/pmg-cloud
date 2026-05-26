@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"time"
 
 	controltowerv1grpc "buf.build/gen/go/safedep/api/grpc/go/safedep/services/controltower/v1/controltowerv1grpc"
 	"github.com/yourorg/pmg-cloud/dashboard"
@@ -26,12 +27,21 @@ func main() {
 	dataDir := flag.String("data-dir", "data", "Directory for event storage")
 	apiKeysFlag := flag.String("api-keys", "", "Comma-separated list of accepted API keys (empty = no auth)")
 	httpAddr := flag.String("http-addr", ":8080", "HTTP dashboard listen address (empty to disable)")
+	retentionDays := flag.Int("retention-days", 30, "Delete event files older than this many days (0 = disabled)")
+	dashUser := flag.String("dash-user", "", "Dashboard HTTP basic auth username (empty = no auth)")
+	dashPass := flag.String("dash-pass", "", "Dashboard HTTP basic auth password")
 	flag.Parse()
 
 	// Also support API keys from env
 	apiKeysRaw := *apiKeysFlag
 	if apiKeysRaw == "" {
 		apiKeysRaw = os.Getenv("PMG_CLOUD_API_KEYS")
+	}
+	if *dashUser == "" {
+		*dashUser = os.Getenv("PMG_CLOUD_DASH_USER")
+	}
+	if *dashPass == "" {
+		*dashPass = os.Getenv("PMG_CLOUD_DASH_PASS")
 	}
 	var apiKeys []string
 	for _, k := range strings.Split(apiKeysRaw, ",") {
@@ -86,6 +96,10 @@ func main() {
 	}
 	slog.Info("pmg-cloud started", "addr", *addr, "insecure", *insecure, "auth", authMode, "data_dir", *dataDir)
 
+	if *retentionDays > 0 {
+		go runRetentionLoop(*dataDir, *retentionDays)
+	}
+
 	if *httpAddr != "" {
 		go func() {
 			// Use tcp4 explicitly — Go defaults to IPv6-only on Linux/WSL2,
@@ -95,9 +109,18 @@ func main() {
 				slog.Error("dashboard listen error", "addr", *httpAddr, "err", err)
 				return
 			}
-			slog.Info("dashboard started", "addr", *httpAddr)
+			slog.Info("dashboard started", "addr", *httpAddr, "auth", *dashUser != "")
 			mirror := dashboard.NewMalwareMirror(*dataDir + "/aikido-mirror")
-			if err := http.Serve(ln, dashboard.Handler(*dataDir, mirror)); err != nil {
+
+			// /healthz is always unauthenticated (load balancers, Docker HEALTHCHECK).
+			// Everything else is wrapped with optional basic auth.
+			mux := http.NewServeMux()
+			mux.Handle("/healthz", dashboard.HealthzHandler())
+			mux.Handle("/", dashboard.BasicAuthMiddleware(
+				dashboard.Handler(*dataDir, mirror),
+				*dashUser, *dashPass,
+			))
+			if err := http.Serve(ln, mux); err != nil {
 				slog.Error("dashboard error", "err", err)
 			}
 		}()
@@ -106,5 +129,22 @@ func main() {
 	if err := s.Serve(lis); err != nil {
 		slog.Error("server error", "err", err)
 		os.Exit(1)
+	}
+}
+
+func runRetentionLoop(dataDir string, days int) {
+	runOnce := func() {
+		n, err := dashboard.DeleteOldFiles(dataDir, days)
+		if err != nil {
+			slog.Warn("retention cleanup error", "err", err)
+		} else if n > 0 {
+			slog.Info("retention: deleted old event files", "count", n, "retention_days", days)
+		}
+	}
+	runOnce()
+	ticker := time.NewTicker(24 * time.Hour)
+	defer ticker.Stop()
+	for range ticker.C {
+		runOnce()
 	}
 }

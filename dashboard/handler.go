@@ -139,7 +139,27 @@ func Handler(dataDir string, mirror *MalwareMirror) http.Handler {
 		writeJSON(w, mirror.Status())
 	})
 
+	mux.HandleFunc("/api/malware/refresh", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		if err := mirror.Refresh(r.Context()); err != nil {
+			http.Error(w, err.Error(), http.StatusBadGateway)
+			return
+		}
+		writeJSON(w, mirror.Status())
+	})
+
 	return mux
+}
+
+// HealthzHandler returns a minimal health-check handler suitable for use
+// outside any auth middleware (load balancers, Docker HEALTHCHECK, etc.).
+func HealthzHandler() http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, map[string]bool{"ok": true})
+	})
 }
 
 func writeJSON(w http.ResponseWriter, v any) {
