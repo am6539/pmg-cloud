@@ -116,6 +116,8 @@ hr{border:none;border-top:1px solid var(--bd);margin:13px 0}
 @keyframes spin{to{transform:rotate(360deg)}}
 .spin{display:inline-block;animation:spin 1s linear infinite}
 code{background:var(--hv);padding:1px 5px;border-radius:4px;font-family:monospace;font-size:12px}
+.login-overlay{position:fixed;inset:0;background:rgba(15,23,42,.75);z-index:200;display:flex;align-items:center;justify-content:center;backdrop-filter:blur(4px)}
+.login-box{background:var(--sf);border:1px solid var(--bd);border-radius:14px;padding:32px 36px;width:340px;max-width:94vw;box-shadow:var(--sh2)}
 </style>
 </head>
 <body>
@@ -136,6 +138,16 @@ code{background:var(--hv);padding:1px 5px;border-radius:4px;font-family:monospac
     <div class="nav-item" onclick="nav('groups')" data-page="groups">&#128101; Groups</div>
     <div class="nav-item" onclick="nav('audit')" data-page="audit">&#128220; Audit Log</div>
     <div class="nav-item" onclick="nav('settings')" data-page="settings">&#9881; Settings</div>
+  </div>
+  <div id="sb-user-bar" style="padding:10px 12px;border-top:1px solid var(--bd);flex-shrink:0;display:none">
+    <div class="flex" style="justify-content:space-between;align-items:center;margin-bottom:6px">
+      <div>
+        <div style="font-size:12px;font-weight:600;color:var(--tx2)" id="sb-username"></div>
+        <div style="font-size:11px;color:var(--tx4)" id="sb-role"></div>
+      </div>
+      <button class="icon-btn" onclick="doLogout()" title="Sign out" style="font-size:16px">&#10551;</button>
+    </div>
+    <button class="btn btn-ghost btn-sm" style="width:100%;font-size:11px" onclick="showChangePwd()">&#128273; Change Password</button>
   </div>
 </nav>
 <div class="main">
@@ -181,17 +193,34 @@ code{background:var(--hv);padding:1px 5px;border-radius:4px;font-family:monospac
   <div class="drawer-body" id="drawer-body"></div>
 </div>
 
+<div class="login-overlay" id="login-overlay" style="display:none">
+  <div class="login-box">
+    <div style="text-align:center;margin-bottom:24px">
+      <div style="font-size:34px;margin-bottom:8px">&#11043;</div>
+      <strong style="font-size:20px;color:var(--pr)">PMG Cloud</strong>
+      <div style="font-size:13px;color:var(--tx3);margin-top:5px">Sign in to continue</div>
+    </div>
+    <div class="fg"><label class="lbl">Username</label><input class="input" id="li-user" autocomplete="username" onkeydown="if(event.key==='Enter')doLogin()"></div>
+    <div class="fg"><label class="lbl">Password</label><input class="input" type="password" id="li-pass" autocomplete="current-password" onkeydown="if(event.key==='Enter')doLogin()"></div>
+    <div style="color:var(--dn);font-size:12px;margin-bottom:10px;min-height:18px" id="li-err"></div>
+    <button class="btn btn-primary" style="width:100%;padding:9px" id="li-btn" onclick="doLogin()">Sign In</button>
+  </div>
+</div>
+
 <script>
 /* ---- STATE ---- */
-var S={page:'dashboard',group:'',days:30,from:'',to:'',useRange:false,evOffset:0,evFilter:{type:'',action:'',malware:''},pkgTab:0,dark:localStorage.dark==='1',groups:[],config:null};
+var S={page:'dashboard',group:'',days:30,from:'',to:'',useRange:false,evOffset:0,evFilter:{type:'',action:'',malware:''},pkgTab:0,dark:localStorage.dark==='1',groups:[],config:null,me:null};
 
 document.addEventListener('DOMContentLoaded',function(){
   applyTheme();
-  initGroups().then(function(){
-    checkAlerts();
-    loadPage();
-    startAR();
-    checkWizard();
+  checkAuth().then(function(ok){
+    if(!ok)return;
+    initGroups().then(function(){
+      checkAlerts();
+      loadPage();
+      startAR();
+      checkWizard();
+    });
   });
 });
 
@@ -219,7 +248,137 @@ function applyDateRange(){S.from=document.getElementById('from-date').value;S.to
 var arT,arN=30;
 function startAR(){clearInterval(arT);arN=30;arT=setInterval(function(){arN--;var el=document.getElementById('ar-cd');if(el)el.textContent=arN+'s';if(arN<=0){arN=30;loadPage();}},1000);}
 
-async function api(path){var r=await fetch(path);if(!r.ok)throw new Error(await r.text());return r.json();}
+/* ---- AUTH ---- */
+async function checkAuth(){
+  try{
+    var r=await fetch('/api/me');
+    if(r.status===401){showLoginOverlay();return false;}
+    S.me=await r.json();
+    document.getElementById('login-overlay').style.display='none';
+    updateSidebarUser();
+    return true;
+  }catch(e){showLoginOverlay();return false;}
+}
+
+function showLoginOverlay(){
+  var el=document.getElementById('login-overlay');
+  if(el)el.style.display='flex';
+  var lp=document.getElementById('li-pass');if(lp)lp.value='';
+  var le=document.getElementById('li-err');if(le)le.textContent='';
+  setTimeout(function(){var lu=document.getElementById('li-user');if(lu)lu.focus();},80);
+}
+
+function updateSidebarUser(){
+  if(!S.me)return;
+  var un=document.getElementById('sb-username');var ur=document.getElementById('sb-role');var ub=document.getElementById('sb-user-bar');
+  if(un)un.textContent=S.me.username;
+  if(ur)ur.textContent=S.me.role==='admin'?'Admin':'Viewer';
+  if(ub)ub.style.display='block';
+  if(S.me.must_change_password)setTimeout(showChangePwd,300);
+}
+
+async function doLogin(){
+  var user=(document.getElementById('li-user')||{}).value||'';
+  var pass=(document.getElementById('li-pass')||{}).value||'';
+  if(!user||!pass)return;
+  var btn=document.getElementById('li-btn');var err=document.getElementById('li-err');
+  btn.disabled=true;err.textContent='';
+  try{
+    var r=await fetch('/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:user,password:pass})});
+    if(!r.ok){var d=await r.json().catch(function(){return{};});err.textContent=d.error||'Login failed';return;}
+    S.me=await r.json();
+    document.getElementById('login-overlay').style.display='none';
+    updateSidebarUser();
+    await initGroups();
+    checkAlerts();
+    loadPage();
+    startAR();
+  }catch(e){err.textContent=e.message;}
+  finally{btn.disabled=false;}
+}
+
+async function doLogout(){
+  try{await fetch('/auth/logout',{method:'POST'});}catch(e){}
+  S.me=null;
+  var ub=document.getElementById('sb-user-bar');if(ub)ub.style.display='none';
+  showLoginOverlay();
+}
+
+function showChangePwd(){
+  var forced=S.me&&S.me.must_change_password;
+  showModal(
+    '<div class="modal-title">Change Password'+
+    (forced?' <span style="font-size:12px;color:var(--dn);font-weight:400">Required</span>':'')+
+    (forced?'':' <button class="icon-btn" onclick="closeModal()">&#x2715;</button>')+'</div>'+
+    '<div class="fg"><label class="lbl">New Password</label><input class="input" type="password" id="cp-new"></div>'+
+    '<div class="fg"><label class="lbl">Confirm New Password</label><input class="input" type="password" id="cp-conf"></div>'+
+    '<div id="cp-err" style="color:var(--dn);font-size:12px;min-height:18px;margin-bottom:8px"></div>'+
+    '<div class="modal-footer"><button class="btn btn-primary" onclick="doChangePwd()">Update Password</button></div>'
+  );
+  setTimeout(function(){var el=document.getElementById('cp-new');if(el)el.focus();},80);
+}
+
+async function doChangePwd(){
+  var nw=(document.getElementById('cp-new')||{}).value||'';
+  var cf=(document.getElementById('cp-conf')||{}).value||'';
+  var errEl=document.getElementById('cp-err');
+  if(!nw){errEl.textContent='New password required';return;}
+  if(nw!==cf){errEl.textContent='Passwords do not match';return;}
+  try{
+    var r=await fetch('/api/me/password',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({password:nw})});
+    if(!r.ok){var d=await r.json().catch(function(){return{};});errEl.textContent=d.error||'Failed';return;}
+    if(S.me)S.me.must_change_password=false;
+    closeModal();
+  }catch(e){errEl.textContent=e.message;}
+}
+
+function openAddUser(){
+  showModal(
+    '<div class="modal-title">Add User <button class="icon-btn" onclick="closeModal()">&#x2715;</button></div>'+
+    '<div class="fg"><label class="lbl">Username</label><input class="input" id="nu-user"></div>'+
+    '<div class="fg"><label class="lbl">Password</label><input class="input" type="password" id="nu-pass"></div>'+
+    '<div class="fg"><label class="lbl">Role</label><select class="input" id="nu-role"><option value="viewer">Viewer</option><option value="admin">Admin</option></select></div>'+
+    '<div class="modal-footer"><button class="btn btn-ghost" onclick="closeModal()">Cancel</button><button class="btn btn-primary" onclick="createUserAccount()">Create</button></div>'
+  );
+  setTimeout(function(){var el=document.getElementById('nu-user');if(el)el.focus();},80);
+}
+
+async function createUserAccount(){
+  var user=(document.getElementById('nu-user')||{}).value||'';
+  var pass=(document.getElementById('nu-pass')||{}).value||'';
+  var role=(document.getElementById('nu-role')||{}).value||'viewer';
+  if(!user||!pass)return;
+  try{
+    var r=await fetch('/api/users',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:user,password:pass,role:role})});
+    if(!r.ok){var d=await r.json().catch(function(){return{};});alert(d.error||'Error');return;}
+    closeModal();await renderSettings();
+  }catch(e){alert(e.message);}
+}
+
+async function toggleUserRole(id,currentRole){
+  var newRole=currentRole==='admin'?'viewer':'admin';
+  try{
+    var r=await fetch('/api/users/'+id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({role:newRole})});
+    if(!r.ok){var d=await r.json().catch(function(){return{};});alert(d.error||'Error');return;}
+    await renderSettings();
+  }catch(e){alert(e.message);}
+}
+
+async function deleteUser(id,username){
+  if(!confirm('Delete user "'+username+'"? This cannot be undone.'))return;
+  try{
+    var r=await fetch('/api/users/'+id,{method:'DELETE'});
+    if(!r.ok){var d=await r.json().catch(function(){return{};});alert(d.error||'Error');return;}
+    await renderSettings();
+  }catch(e){alert(e.message);}
+}
+
+async function api(path){
+  var r=await fetch(path);
+  if(r.status===401){S.me=null;showLoginOverlay();throw new Error('Session expired. Please sign in again.');}
+  if(!r.ok)throw new Error(await r.text());
+  return r.json();
+}
 
 function buildQ(extra){
   extra=extra||{};
@@ -741,6 +900,8 @@ async function renderSettings(){
   var cfg={};try{cfg=await api('/api/config');S.config=cfg;}catch(e){}
   var wh=cfg.webhooks||[];
   var al=cfg.alert_config||{};
+  var users=[];
+  if(S.me&&S.me.role==='admin'){try{users=await api('/api/users');}catch(e){}}
   document.getElementById('content').innerHTML=
 '<div class="two-col">'+
 '<div class="card"><div class="card-title">Data Retention</div>'+
@@ -770,7 +931,24 @@ async function renderSettings(){
   '<button class="btn btn-sm btn-danger" onclick="deleteWebhook(\''+h(w.id)+'\')">Delete</button>'+
   '</td></tr>';
 }).join(''):'<tr><td colspan="5" class="empty">No webhooks configured</td></tr>')+
-'</tbody></table></div>';
+'</tbody></table></div>'+
+(S.me&&S.me.role==='admin'?
+'<div class="sec-title" style="margin-top:18px">Users <small>'+users.length+' accounts</small>'+
+'<button class="btn btn-primary btn-sm" onclick="openAddUser()">+ Add User</button></div>'+
+'<div class="tbl-wrap"><table><thead><tr><th>Username</th><th>Role</th><th>Created</th><th></th></tr></thead><tbody>'+
+(users.length?users.map(function(u){
+  return'<tr>'+
+  '<td><strong>'+h(u.username)+'</strong>'+(u.must_change_password?' <span style="font-size:10px;color:var(--wn)">must change pwd</span>':'')+'</td>'+
+  '<td>'+bdg(u.role==='admin'?'Admin':'Viewer',u.role==='admin'?'teal':'gray')+'</td>'+
+  '<td style="font-size:12px;color:var(--tx3)">'+fmtDate(u.created_at)+'</td>'+
+  '<td class="flex" style="gap:4px">'+
+  '<button class="btn btn-sm btn-ghost" onclick="toggleUserRole(\''+h(u.id)+'\',\''+h(u.role)+'\')">'+
+  (u.role==='admin'?'Make Viewer':'Make Admin')+'</button>'+
+  '<button class="btn btn-sm btn-danger"'+(S.me&&u.id===S.me.id?' disabled':'')+' onclick="deleteUser(\''+h(u.id)+'\',\''+h(u.username)+'\')">Delete</button>'+
+  '</td></tr>';
+}).join(''):'<tr><td colspan="4" class="empty">No users</td></tr>')+
+'</tbody></table></div>'
+:'');
 }
 
 async function saveRetention(){

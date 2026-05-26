@@ -138,24 +138,31 @@ func main() {
 				slog.Error("dashboard listen error", "addr", *httpAddr, "err", err)
 				return
 			}
-			slog.Info("dashboard started", "addr", *httpAddr, "auth", *dashUser != "")
+			slog.Info("dashboard started", "addr", *httpAddr)
 			mirror := dashboard.NewMalwareMirror(*dataDir + "/aikido-mirror")
+
+			userStore, err := dashboard.NewUserStore(*dataDir, *dashUser, *dashPass)
+			if err != nil {
+				slog.Error("failed to open user store", "err", err)
+				return
+			}
+			sessionStore := dashboard.NewSessionStore()
+
 			deps := dashboard.HandlerDeps{
-				Mirror:  mirror,
-				Groups:  groups,
-				Config:  cfgStore,
-				Audit:   auditLog,
-				Webhook: webhookDelivery,
+				Mirror:   mirror,
+				Groups:   groups,
+				Config:   cfgStore,
+				Audit:    auditLog,
+				Webhook:  webhookDelivery,
+				Users:    userStore,
+				Sessions: sessionStore,
 			}
 
 			// /healthz is always unauthenticated (load balancers, Docker HEALTHCHECK).
-			// Everything else is wrapped with optional basic auth.
+			// Session-based auth is handled inside dashboard.Handler for all /api/* routes.
 			mux := http.NewServeMux()
 			mux.Handle("/healthz", dashboard.HealthzHandler())
-			mux.Handle("/", dashboard.BasicAuthMiddleware(
-				dashboard.Handler(*dataDir, deps),
-				*dashUser, *dashPass,
-			))
+			mux.Handle("/", dashboard.Handler(*dataDir, deps))
 			if err := http.Serve(ln, mux); err != nil {
 				slog.Error("dashboard error", "err", err)
 			}

@@ -1,6 +1,7 @@
 package dashboard
 
 import (
+	"context"
 	"embed"
 	"encoding/csv"
 	"encoding/json"
@@ -13,16 +14,27 @@ import (
 	"time"
 )
 
+type ctxKey string
+
+const ctxSession ctxKey = "session"
+
+func sessionFromContext(r *http.Request) (DashSession, bool) {
+	s, ok := r.Context().Value(ctxSession).(DashSession)
+	return s, ok
+}
+
 //go:embed static
 var staticFiles embed.FS
 
 // HandlerDeps bundles optional dependencies for the dashboard handler.
 type HandlerDeps struct {
-	Mirror  *MalwareMirror
-	Groups  *GroupStore      // may be nil
-	Config  *ConfigStore     // may be nil
-	Audit   *AuditLog        // may be nil
-	Webhook *WebhookDelivery // may be nil
+	Mirror   *MalwareMirror
+	Groups   *GroupStore      // may be nil
+	Config   *ConfigStore     // may be nil
+	Audit    *AuditLog        // may be nil
+	Webhook  *WebhookDelivery // may be nil
+	Users    *UserStore       // may be nil; enables session-based auth
+	Sessions *SessionStore    // required when Users is set
 }
 
 // Handler returns an http.Handler for the dashboard.
@@ -543,7 +555,259 @@ func Handler(dataDir string, deps HandlerDeps) http.Handler {
 		})
 	}
 
+	// --- Auth & user-management endpoints ---
+	if deps.Users != nil && deps.Sessions != nil {
+		users := deps.Users
+		sessions := deps.Sessions
+
+		// POST /auth/login — no session required
+		mux.HandleFunc("/auth/login", func(w http.ResponseWriter, r *http.Request) {
+			if r.Method != http.MethodPost {
+				http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+				return
+			}
+			var creds struct {
+				Username string `json:"username"`
+				Password string `json:"password"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&creds); err != nil {
+				http.Error(w, "bad request", http.StatusBadRequest)
+				return
+			}
+			u, ok := users.CheckPassword(creds.Username, creds.Password)
+			if !ok {
+				http.Error(w, `{"error":"invalid credentials"}`, http.StatusUnauthorized)
+				return
+			}
+			sid, err := sessions.Create(u)
+			if err != nil {
+				http.Error(w, "internal error", http.StatusInternalServerError)
+				return
+			}
+			http.SetCookie(w, &http.Cookie{
+				Name:     SessionCookieName,
+				Value:    sid,
+				Path:     "/",
+				HttpOnly: true,
+				SameSite: http.SameSiteLaxMode,
+				MaxAge:   int(sessionTTL.Seconds()),
+			})
+			u.PasswordHash = ""
+			if deps.Audit != nil {
+				deps.Audit.Log("login", u.Username, "")
+			}
+			writeJSON(w, u)
+		})
+
+		// POST /auth/logout
+		mux.HandleFunc("/auth/logout", func(w http.ResponseWriter, r *http.Request) {
+			if c, err := r.Cookie(SessionCookieName); err == nil {
+				sessions.Delete(c.Value)
+				if dep := deps.Audit; dep != nil {
+					if s, ok := sessions.Get(c.Value); ok {
+						dep.Log("logout", s.Username, "")
+					}
+				}
+			}
+			http.SetCookie(w, &http.Cookie{
+				Name:   SessionCookieName,
+				Value:  "",
+				Path:   "/",
+				MaxAge: -1,
+			})
+			writeJSON(w, map[string]bool{"ok": true})
+		})
+
+		// GET /api/me
+		mux.HandleFunc("/api/me", func(w http.ResponseWriter, r *http.Request) {
+			s, ok := sessionFromContext(r)
+			if !ok {
+				http.Error(w, `{"error":"unauthorized"}`, http.StatusUnauthorized)
+				return
+			}
+			u, found := users.FindByID(s.UserID)
+			if !found {
+				http.Error(w, `{"error":"unauthorized"}`, http.StatusUnauthorized)
+				return
+			}
+			u.PasswordHash = ""
+			writeJSON(w, u)
+		})
+
+		// POST /api/me/password — change own password
+		mux.HandleFunc("/api/me/password", func(w http.ResponseWriter, r *http.Request) {
+			if r.Method != http.MethodPost {
+				http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+				return
+			}
+			s, ok := sessionFromContext(r)
+			if !ok {
+				http.Error(w, `{"error":"unauthorized"}`, http.StatusUnauthorized)
+				return
+			}
+			var body struct {
+				Password string `json:"password"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Password == "" {
+				http.Error(w, "password required", http.StatusBadRequest)
+				return
+			}
+			if err := users.UpdatePassword(s.UserID, body.Password); err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+			if deps.Audit != nil {
+				deps.Audit.Log("password_changed", s.Username, "self")
+			}
+			writeJSON(w, map[string]bool{"ok": true})
+		})
+
+		// GET/POST /api/users — admin only
+		mux.HandleFunc("/api/users", func(w http.ResponseWriter, r *http.Request) {
+			s, ok := sessionFromContext(r)
+			if !ok {
+				http.Error(w, `{"error":"unauthorized"}`, http.StatusUnauthorized)
+				return
+			}
+			if s.Role != RoleAdmin {
+				http.Error(w, `{"error":"forbidden"}`, http.StatusForbidden)
+				return
+			}
+			switch r.Method {
+			case http.MethodGet:
+				writeJSON(w, users.ListUsers())
+			case http.MethodPost:
+				var body struct {
+					Username string `json:"username"`
+					Password string `json:"password"`
+					Role     string `json:"role"`
+				}
+				if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+					http.Error(w, "bad request", http.StatusBadRequest)
+					return
+				}
+				u, err := users.CreateUser(body.Username, body.Password, body.Role)
+				if err != nil {
+					http.Error(w, err.Error(), http.StatusBadRequest)
+					return
+				}
+				u.PasswordHash = ""
+				if deps.Audit != nil {
+					deps.Audit.Log("user_created", u.Username, fmt.Sprintf("role=%s", u.Role))
+				}
+				writeJSON(w, u)
+			default:
+				http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			}
+		})
+
+		// PUT/DELETE /api/users/{id} — admin only
+		mux.HandleFunc("/api/users/", func(w http.ResponseWriter, r *http.Request) {
+			s, ok := sessionFromContext(r)
+			if !ok {
+				http.Error(w, `{"error":"unauthorized"}`, http.StatusUnauthorized)
+				return
+			}
+			if s.Role != RoleAdmin {
+				http.Error(w, `{"error":"forbidden"}`, http.StatusForbidden)
+				return
+			}
+			uid := strings.TrimPrefix(r.URL.Path, "/api/users/")
+			if uid == "" {
+				http.Error(w, "id required", http.StatusBadRequest)
+				return
+			}
+			switch r.Method {
+			case http.MethodPut:
+				var body struct {
+					Password string `json:"password"`
+					Role     string `json:"role"`
+				}
+				if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+					http.Error(w, "bad request", http.StatusBadRequest)
+					return
+				}
+				if body.Password != "" {
+					if err := users.UpdatePassword(uid, body.Password); err != nil {
+						http.Error(w, err.Error(), http.StatusBadRequest)
+						return
+					}
+					if deps.Audit != nil {
+						u, _ := users.FindByID(uid)
+						deps.Audit.Log("password_changed", u.Username, fmt.Sprintf("by=%s", s.Username))
+					}
+				}
+				if body.Role != "" {
+					if err := users.UpdateRole(uid, body.Role); err != nil {
+						http.Error(w, err.Error(), http.StatusBadRequest)
+						return
+					}
+					if deps.Audit != nil {
+						u, _ := users.FindByID(uid)
+						deps.Audit.Log("role_changed", u.Username, fmt.Sprintf("role=%s by=%s", body.Role, s.Username))
+					}
+				}
+				u, _ := users.FindByID(uid)
+				u.PasswordHash = ""
+				writeJSON(w, u)
+			case http.MethodDelete:
+				if uid == s.UserID {
+					http.Error(w, "cannot delete your own account", http.StatusBadRequest)
+					return
+				}
+				u, _ := users.FindByID(uid)
+				if err := users.DeleteUser(uid); err != nil {
+					http.Error(w, err.Error(), http.StatusBadRequest)
+					return
+				}
+				if deps.Audit != nil {
+					deps.Audit.Log("user_deleted", u.Username, fmt.Sprintf("by=%s", s.Username))
+				}
+				w.WriteHeader(http.StatusNoContent)
+			default:
+				http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			}
+		})
+	}
+
+	if deps.Users != nil && deps.Sessions != nil {
+		return sessionMiddleware(mux, deps.Sessions)
+	}
 	return mux
+}
+
+// sessionMiddleware protects /api/* routes (except /auth/*) with session auth.
+func sessionMiddleware(h http.Handler, sessions *SessionStore) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Always pass: static files, auth endpoints, healthz
+		path := r.URL.Path
+		if !strings.HasPrefix(path, "/api/") || path == "/api/me" {
+			// For /api/me: still attach session if present, but don't block
+			if strings.HasPrefix(path, "/api/") {
+				if c, err := r.Cookie(SessionCookieName); err == nil {
+					if s, ok := sessions.Get(c.Value); ok {
+						r = r.WithContext(context.WithValue(r.Context(), ctxSession, s))
+					}
+				}
+			}
+			h.ServeHTTP(w, r)
+			return
+		}
+		c, err := r.Cookie(SessionCookieName)
+		if err != nil {
+			w.Header().Set("Content-Type", "application/json")
+			http.Error(w, `{"error":"unauthorized"}`, http.StatusUnauthorized)
+			return
+		}
+		s, ok := sessions.Get(c.Value)
+		if !ok {
+			w.Header().Set("Content-Type", "application/json")
+			http.Error(w, `{"error":"unauthorized"}`, http.StatusUnauthorized)
+			return
+		}
+		r = r.WithContext(context.WithValue(r.Context(), ctxSession, s))
+		h.ServeHTTP(w, r)
+	})
 }
 
 // HealthzHandler returns a minimal health-check handler suitable for use
