@@ -499,6 +499,40 @@ func EndpointList(events []Event) []EndpointInfo {
 	return list
 }
 
+// MergeAgentEndpoints adds enrolled agents that have no matching event-sourced endpoint.
+// Correlation is by hostname (case-insensitive). Agents already represented in the
+// event list are skipped; new agents get LastSeen = EnrolledAt and Sessions = 0.
+func MergeAgentEndpoints(endpoints []EndpointInfo, agents []Agent) []EndpointInfo {
+	seen := make(map[string]struct{}, len(endpoints))
+	for _, ep := range endpoints {
+		seen[strings.ToLower(ep.Hostname)] = struct{}{}
+	}
+	for _, a := range agents {
+		if _, ok := seen[strings.ToLower(a.Hostname)]; ok {
+			continue
+		}
+		lastSeen := a.EnrolledAt
+		if a.LastSeen != nil {
+			lastSeen = *a.LastSeen
+		}
+		endpoints = append(endpoints, EndpointInfo{
+			EndpointID:  a.ID,
+			MachineID:   a.ID,
+			Hostname:    a.Hostname,
+			OS:          a.OS,
+			Arch:        a.Arch,
+			RemoteIP:    a.RemoteIP,
+			LastSeen:    lastSeen,
+			ToolVersion: a.PMGVersion,
+		})
+		seen[strings.ToLower(a.Hostname)] = struct{}{}
+	}
+	sort.Slice(endpoints, func(i, j int) bool {
+		return endpoints[i].LastSeen.After(endpoints[j].LastSeen)
+	})
+	return endpoints
+}
+
 // CIRepoStat aggregates event counts per CI repository.
 type CIRepoStat struct {
 	Repository string    `json:"repository"`

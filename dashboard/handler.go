@@ -276,11 +276,15 @@ func Handler(dataDir string, deps HandlerDeps) http.Handler {
 			return
 		}
 		events = filterByGroup(events, r.URL.Query().Get("group_id"))
+		list := EndpointList(events)
+		if deps.Enrollment != nil {
+			list = MergeAgentEndpoints(list, deps.Enrollment.ListAgents())
+		}
 		if r.URL.Query().Get("format") == "csv" {
-			writeEndpointsCSV(w, EndpointList(events))
+			writeEndpointsCSV(w, list)
 			return
 		}
-		writeJSON(w, EndpointList(events))
+		writeJSON(w, list)
 	})
 
 	// API: per-endpoint events: /api/endpoints/{id}/events
