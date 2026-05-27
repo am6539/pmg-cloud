@@ -90,9 +90,14 @@ Write-Host 'Enrolling with PMG Cloud...'
 Write-Host 'Setting up PMG...'
 & $bin setup install
 
+# Refresh PATH in the current session from registry so shims work immediately
+# without needing to restart the terminal.
+$machinePath = [Environment]::GetEnvironmentVariable('PATH', 'Machine')
+$userPath    = [Environment]::GetEnvironmentVariable('PATH', 'User')
+$env:PATH    = ($machinePath + ';' + $userPath) -replace ';;+', ';'
+
 Write-Host ''
 Write-Host 'Done! PMG is installed, enrolled, and active.'
-Write-Host 'Restart your terminal for PATH changes to take effect.'
 `
 
 const installScriptTemplate = `#!/bin/sh
