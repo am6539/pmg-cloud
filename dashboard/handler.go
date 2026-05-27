@@ -52,21 +52,27 @@ if (-not $PMG_TOKEN) {
   Write-Error '--token=TOKEN is required'; exit 1
 }
 
-# Detect architecture
-$arch = if ([Environment]::Is64BitOperatingSystem) { 'amd64' } else { '386' }
+# Detect architecture (goreleaser naming: x86_64 / arm64 / i386)
+$archRaw = if ([Environment]::Is64BitOperatingSystem) {
+  if ($env:PROCESSOR_ARCHITECTURE -eq 'ARM64') { 'arm64' } else { 'x86_64' }
+} else { 'i386' }
 
 # Fetch latest release from GitHub
 Write-Host 'Fetching latest PMG release...'
 $rel   = Invoke-RestMethod 'https://api.github.com/repos/am6539/pmg/releases/latest'
-$asset = $rel.assets | Where-Object { $_.name -like "pmg_windows_${arch}.exe" } | Select-Object -First 1
-if (-not $asset) { Write-Error "No Windows binary found for arch: $arch"; exit 1 }
+$asset = $rel.assets | Where-Object { $_.name -like "pmg_Windows_${archRaw}.zip" } | Select-Object -First 1
+if (-not $asset) { Write-Error "No Windows binary found for arch: $archRaw"; exit 1 }
 
-# Download binary
+# Download and extract zip
 $dir = "$env:LOCALAPPDATA\pmg"
 New-Item -ItemType Directory -Force -Path $dir | Out-Null
-$bin = "$dir\pmg.exe"
+$zip = "$env:TEMP\pmg_windows.zip"
 Write-Host "Downloading PMG $($rel.tag_name)..."
-Invoke-WebRequest $asset.browser_download_url -OutFile $bin
+Invoke-WebRequest $asset.browser_download_url -OutFile $zip
+Expand-Archive -Path $zip -DestinationPath $dir -Force
+Remove-Item $zip -Force
+$bin = "$dir\pmg.exe"
+if (-not (Test-Path $bin)) { Write-Error "pmg.exe not found after extraction"; exit 1 }
 
 # Add to PATH (user scope)
 $userPath = [Environment]::GetEnvironmentVariable('Path', 'User')
