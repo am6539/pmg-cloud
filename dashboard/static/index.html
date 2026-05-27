@@ -142,6 +142,7 @@ code{background:var(--hv);padding:1px 5px;border-radius:4px;font-family:monospac
     <div class="nav-item" onclick="nav('cicd')" data-page="cicd">&#128256; CI / CD</div>
     <div class="nav-item" onclick="nav('malware')" data-page="malware">&#128737; Malware Feed</div>
     <div class="nav-section">Management</div>
+    <div class="nav-item" onclick="nav('agents')" data-page="agents">&#128290; Agents</div>
     <div class="nav-item" onclick="nav('groups')" data-page="groups">&#128101; Groups</div>
     <div class="nav-item" onclick="nav('audit')" data-page="audit">&#128220; Audit Log</div>
     <div class="nav-item" onclick="nav('settings')" data-page="settings">&#9881; Settings</div>
@@ -406,7 +407,7 @@ function buildQ(extra){
   return p.toString();
 }
 
-var PAGE_TITLES={dashboard:'Overview',events:'Events',endpoints:'Endpoints',packages:'Packages',cicd:'CI / CD',malware:'Malware Feed',groups:'Groups',audit:'Audit Log',settings:'Settings'};
+var PAGE_TITLES={dashboard:'Overview',events:'Events',endpoints:'Endpoints',packages:'Packages',cicd:'CI / CD',malware:'Malware Feed',agents:'Agents',groups:'Groups',audit:'Audit Log',settings:'Settings'};
 function nav(page){
   S.page=page;S.evOffset=0;
   document.querySelectorAll('.nav-item').forEach(function(el){el.classList.toggle('active',el.dataset.page===page);});
@@ -438,6 +439,7 @@ async function loadPage(){
     else if(S.page==='packages')await renderPackages();
     else if(S.page==='cicd')await renderCICD();
     else if(S.page==='malware')await renderMalware();
+    else if(S.page==='agents')await renderAgents();
     else if(S.page==='groups')await renderGroups();
     else if(S.page==='audit')await renderAudit();
     else if(S.page==='settings')await renderSettings();
@@ -783,6 +785,133 @@ async function refreshFeed(btn){
   btn.disabled=true;btn.textContent='Refreshing…';
   try{var r=await fetch('/api/malware/refresh',{method:'POST'});if(!r.ok)throw new Error(await r.text());await renderMalware();}
   catch(e){showToast('Refresh failed: '+e.message,'error');btn.disabled=false;btn.textContent='↻ Refresh Feed Now';}
+}
+
+/* ---- AGENTS ---- */
+async function renderAgents(){
+  var agents=[];var tokens=[];
+  try{agents=await api('/api/agents');}catch(e){}
+  if(S.me&&S.me.role==='admin'){try{tokens=await api('/api/enrollment-tokens');}catch(e){}}
+  var origin=window.location.origin;
+  var groups=S.groups||[];
+  document.getElementById('content').innerHTML=
+'<div class="sec-title">Enrolled Agents <small>'+agents.length+' total</small></div>'+
+'<div class="tbl-wrap"><table><thead><tr><th>Hostname</th><th>OS / Arch</th><th>Group</th><th>Enrolled</th><th>Last Seen</th><th></th></tr></thead><tbody>'+
+(agents.length?agents.map(function(a){
+  var grp=groups.find(function(g){return g.id===a.group_id;})||null;
+  var online=a.last_seen&&(Date.now()-new Date(a.last_seen).getTime()<2*3600*1000);
+  var status=online?bdg('online','green'):bdg('offline','gray');
+  return'<tr>'+
+  '<td><strong>'+h(a.hostname)+'</strong> '+status+'</td>'+
+  '<td style="font-size:12px;color:var(--tx3)">'+h(a.os||'')+(a.arch?' / '+h(a.arch):'')+(a.pmg_version?' &nbsp;<code>v'+h(a.pmg_version)+'</code>':'')+'</td>'+
+  '<td>'+(grp?bdg(grp.name,'teal'):'<span style="color:var(--tx4)">unassigned</span>')+'</td>'+
+  '<td style="font-size:12px;color:var(--tx3)">'+fmtDate(a.enrolled_at)+'</td>'+
+  '<td style="font-size:12px;color:var(--tx3)">'+fmtDate(a.last_seen)+'</td>'+
+  '<td class="flex" style="gap:4px">'+
+  (S.me&&S.me.role==='admin'?
+    '<button class="btn btn-sm btn-ghost" onclick="openAssignGroup(\''+h(a.id)+'\',\''+h(a.group_id||'')+'\')">Assign Group</button>'+
+    '<button class="btn btn-sm btn-danger" onclick="removeAgent(\''+h(a.id)+'\',\''+h(a.hostname)+'\')">Remove</button>':'')+
+  '</td></tr>';
+}).join(''):'<tr><td colspan="6" class="empty">No agents enrolled yet — create an enrollment token below to get started.</td></tr>')+
+'</tbody></table></div>'+
+(S.me&&S.me.role==='admin'?
+'<div class="sec-title" style="margin-top:18px">Enrollment Tokens'+
+'<button class="btn btn-primary btn-sm" onclick="openCreateToken()">+ New Token</button></div>'+
+'<div class="tbl-wrap"><table><thead><tr><th>Label</th><th>Prefix</th><th>Group</th><th>Uses</th><th>Expires</th><th>Command</th><th></th></tr></thead><tbody>'+
+(tokens.filter(function(t){return!t.revoked;}).length?
+  tokens.filter(function(t){return!t.revoked;}).map(function(t){
+    var grp=groups.find(function(g){return g.id===t.group_id;})||null;
+    return'<tr>'+
+    '<td><strong>'+h(t.label||'(no label)')+'</strong></td>'+
+    '<td class="mono" style="font-size:11px">'+h(t.token_prefix)+'…</td>'+
+    '<td>'+(grp?bdg(grp.name,'teal'):'<span style="color:var(--tx4)">any</span>')+'</td>'+
+    '<td style="font-size:12px">'+(t.max_uses>0?t.use_count+'/'+t.max_uses:t.use_count+' (unlimited)')+'</td>'+
+    '<td style="font-size:12px;color:var(--tx3)">'+fmtDate(t.expires_at)+'</td>'+
+    '<td><button class="btn btn-sm btn-ghost" onclick="showInstallCmd(\''+h(t.token_prefix)+'\')">&#128203; Copy</button></td>'+
+    '<td><button class="btn btn-sm btn-danger" onclick="revokeEnrollToken(\''+h(t.id)+'\')">Revoke</button></td></tr>';
+  }).join(''):'<tr><td colspan="7" class="empty">No active tokens</td></tr>')+
+'</tbody></table></div>'
+:'');
+}
+
+function showInstallCmd(prefix){
+  var origin=window.location.origin;
+  showModal('<div class="modal-title">Install Command <button class="icon-btn" onclick="closeModal()">&#x2715;</button></div>'+
+  '<p style="font-size:13px;color:var(--tx3);margin-bottom:12px">Replace <code>&lt;FULL_TOKEN&gt;</code> with the complete token you copied when it was created (starts with <code>'+h(prefix)+'</code>).</p>'+
+  '<div class="key-box" style="font-size:12px" id="icmd-box">curl -fsSL '+h(origin)+'/install.sh | sh -s -- --token=&lt;FULL_TOKEN&gt;</div>'+
+  '<div class="modal-footer">'+
+  '<button class="btn btn-primary" onclick="navigator.clipboard.writeText(\'curl -fsSL '+h(origin)+'/install.sh | sh -s -- --token=\').then(function(){showToast(\'Base command copied — paste full token\',\'info\');closeModal();})">&#128203; Copy Base</button>'+
+  '<button class="btn btn-ghost" onclick="closeModal()">Close</button></div>');
+}
+
+function openCreateToken(){
+  var groupOpts='<option value="">No group (assign later)</option>'+(S.groups||[]).map(function(g){return'<option value="'+h(g.id)+'">'+h(g.name)+'</option>';}).join('');
+  showModal('<div class="modal-title">New Enrollment Token <button class="icon-btn" onclick="closeModal()">&#x2715;</button></div>'+
+  '<div class="fg"><label class="lbl">Label (optional)</label><input class="input" id="et-label" placeholder="e.g. Production servers"></div>'+
+  '<div class="fg"><label class="lbl">Assign to Group</label><select class="input" id="et-group">'+groupOpts+'</select></div>'+
+  '<div class="fg"><label class="lbl">Max Uses (0 = unlimited)</label><input class="input" type="number" id="et-uses" value="0" min="0"></div>'+
+  '<div class="fg"><label class="lbl">Expires in hours (0 = never)</label><input class="input" type="number" id="et-ttl" value="24" min="0"></div>'+
+  '<div class="modal-footer"><button class="btn btn-ghost" onclick="closeModal()">Cancel</button><button class="btn btn-primary" onclick="createEnrollToken()">Create</button></div>');
+  setTimeout(function(){var el=document.getElementById('et-label');if(el)el.focus();},80);
+}
+
+async function createEnrollToken(){
+  var label=(document.getElementById('et-label')||{}).value||'';
+  var groupId=(document.getElementById('et-group')||{}).value||'';
+  var maxUses=parseInt((document.getElementById('et-uses')||{}).value)||0;
+  var ttlHours=parseInt((document.getElementById('et-ttl')||{}).value)||0;
+  try{
+    var r=await fetch('/api/enrollment-tokens',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({label:label,group_id:groupId,max_uses:maxUses,ttl_hours:ttlHours})});
+    if(!r.ok){var d=await r.json().catch(function(){return{};});showToast(d.error||'Error','error');return;}
+    var data=await r.json();
+    var token=data.token||'';
+    var origin=window.location.origin;
+    var installCmd='curl -fsSL '+origin+'/install.sh | sh -s -- --token='+token;
+    closeModal();
+    showModal('<div class="modal-title">&#10003; Token Created <button class="icon-btn" onclick="closeModal();renderAgents()">&#x2715;</button></div>'+
+    '<div style="color:var(--dn);font-size:13px;margin-bottom:10px;padding:10px;background:var(--dn-bg);border-radius:8px">'+
+    '&#9888;&#65039; Copy this token now — it will <strong>not</strong> be shown again.</div>'+
+    '<p style="font-size:12px;color:var(--tx3);margin-bottom:4px">Token:</p>'+
+    '<div class="key-box" id="et-token-box">'+h(token)+'</div>'+
+    '<p style="font-size:12px;color:var(--tx3);margin:10px 0 4px">One-line install command:</p>'+
+    '<div class="key-box" style="font-size:11px" id="et-cmd-box">'+h(installCmd)+'</div>'+
+    '<div class="modal-footer">'+
+    '<button class="btn btn-primary" id="et-copy-btn" onclick="navigator.clipboard.writeText(document.getElementById(\'et-cmd-box\').textContent).then(function(){document.getElementById(\'et-copy-btn\').textContent=\'Copied ✓\';})">&#128203; Copy Command</button>'+
+    '<button class="btn btn-ghost" onclick="closeModal();renderAgents()">Done</button></div>');
+  }catch(e){showToast('Error: '+e.message,'error');}
+}
+
+async function revokeEnrollToken(id){
+  if(!confirm('Revoke this enrollment token? Machines that haven\'t enrolled yet won\'t be able to use it.'))return;
+  try{await fetch('/api/enrollment-tokens/'+id,{method:'DELETE'});await renderAgents();}
+  catch(e){showToast('Error: '+e.message,'error');}
+}
+
+function openAssignGroup(agentId,currentGroupId){
+  var groupOpts='<option value="">Unassign</option>'+(S.groups||[]).map(function(g){return'<option value="'+h(g.id)+'"'+(g.id===currentGroupId?' selected':'')+'>'+h(g.name)+'</option>';}).join('');
+  showModal('<div class="modal-title">Assign Agent to Group <button class="icon-btn" onclick="closeModal()">&#x2715;</button></div>'+
+  '<div class="fg"><label class="lbl">Group</label><select class="input" id="ag-group">'+groupOpts+'</select></div>'+
+  '<div class="modal-footer"><button class="btn btn-ghost" onclick="closeModal()">Cancel</button>'+
+  '<button class="btn btn-primary" onclick="assignAgentGroup(\''+h(agentId)+'\')">Save</button></div>');
+}
+
+async function assignAgentGroup(id){
+  var groupId=(document.getElementById('ag-group')||{}).value||'';
+  try{
+    var r=await fetch('/api/agents/'+id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({group_id:groupId})});
+    if(!r.ok){var d=await r.json().catch(function(){return{};});showToast(d.error||'Error','error');return;}
+    closeModal();await renderAgents();
+  }catch(e){showToast('Error: '+e.message,'error');}
+}
+
+async function removeAgent(id,hostname){
+  if(!confirm('Remove agent "'+hostname+'"? Its API key will be revoked.'))return;
+  try{
+    var r=await fetch('/api/agents/'+id,{method:'DELETE'});
+    if(!r.ok){var d=await r.json().catch(function(){return{};});showToast(d.error||'Error','error');return;}
+    await renderAgents();
+  }catch(e){showToast('Error: '+e.message,'error');}
 }
 
 /* ---- GROUPS ---- */

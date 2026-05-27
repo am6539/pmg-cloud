@@ -82,6 +82,12 @@ func main() {
 		os.Exit(1)
 	}
 
+	enrollmentStore, err := dashboard.NewEnrollmentStore(*dataDir)
+	if err != nil {
+		slog.Error("failed to open enrollment store", "err", err)
+		os.Exit(1)
+	}
+
 	cfgStore, err := dashboard.NewConfigStore(*dataDir)
 	if err != nil {
 		slog.Error("failed to open config store", "err", err)
@@ -154,13 +160,15 @@ func main() {
 			sessionStore := dashboard.NewSessionStore()
 
 			deps := dashboard.HandlerDeps{
-				Mirror:   mirror,
-				Groups:   groups,
-				Config:   cfgStore,
-				Audit:    auditLog,
-				Webhook:  webhookDelivery,
-				Users:    userStore,
-				Sessions: sessionStore,
+				Mirror:     mirror,
+				Groups:     groups,
+				Config:     cfgStore,
+				Audit:      auditLog,
+				Webhook:    webhookDelivery,
+				Users:      userStore,
+				Sessions:   sessionStore,
+				Enrollment: enrollmentStore,
+				GRPCAddr:   *addr,
 			}
 
 			// /healthz is always unauthenticated (load balancers, Docker HEALTHCHECK).

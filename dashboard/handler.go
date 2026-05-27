@@ -28,14 +28,45 @@ var staticFiles embed.FS
 
 // HandlerDeps bundles optional dependencies for the dashboard handler.
 type HandlerDeps struct {
-	Mirror   *MalwareMirror
-	Groups   *GroupStore      // may be nil
-	Config   *ConfigStore     // may be nil
-	Audit    *AuditLog        // may be nil
-	Webhook  *WebhookDelivery // may be nil
-	Users    *UserStore       // may be nil; enables session-based auth
-	Sessions *SessionStore    // required when Users is set
+	Mirror     *MalwareMirror
+	Groups     *GroupStore      // may be nil
+	Config     *ConfigStore     // may be nil
+	Audit      *AuditLog        // may be nil
+	Webhook    *WebhookDelivery // may be nil
+	Users      *UserStore       // may be nil; enables session-based auth
+	Sessions   *SessionStore    // required when Users is set
+	Enrollment *EnrollmentStore // may be nil; enables agent enrollment
+	GRPCAddr   string           // gRPC endpoint reported to enrolling agents
 }
+
+const installScriptTemplate = `#!/bin/sh
+set -eu
+PMG_SERVER="{{SERVER_URL}}"
+PMG_TOKEN="${PMG_TOKEN:-}"
+
+# Parse --token flag
+for arg in "$@"; do
+  case "$arg" in
+    --token=*) PMG_TOKEN="${arg#--token=}" ;;
+  esac
+done
+
+if [ -z "$PMG_TOKEN" ]; then
+  echo "Error: --token=TOKEN is required" >&2
+  exit 1
+fi
+
+# Install PMG binary
+echo "Installing PMG..."
+curl -fsSL https://raw.githubusercontent.com/am6539/pmg/main/install.sh | sh
+
+# Enroll with server
+echo "Enrolling with PMG Cloud..."
+pmg cloud enroll --endpoint="$PMG_SERVER" --token="$PMG_TOKEN"
+
+echo "Done! PMG is installed and enrolled."
+echo "Run 'pmg setup install' to wire PMG into your shell (if not already)."
+`
 
 // Handler returns an http.Handler for the dashboard.
 // dataDir is the path to the JSONL event directory.
@@ -555,6 +586,272 @@ func Handler(dataDir string, deps HandlerDeps) http.Handler {
 		})
 	}
 
+	// Enrollment APIs — always active when Enrollment is wired.
+	if deps.Enrollment != nil {
+		enrollment := deps.Enrollment
+		enrollRL := newIPRateLimiter() // tighter: 5 req/min per IP
+
+		// GET /install.sh — unauthenticated, serves dynamic install script
+		mux.HandleFunc("/install.sh", func(w http.ResponseWriter, r *http.Request) {
+			scheme := "http"
+			if r.TLS != nil {
+				scheme = "https"
+			}
+			serverURL := scheme + "://" + r.Host
+			script := strings.ReplaceAll(installScriptTemplate, "{{SERVER_URL}}", serverURL)
+			w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+			fmt.Fprint(w, script)
+		})
+
+		// POST /api/enroll — unauthenticated, agent registration
+		mux.HandleFunc("/api/enroll", func(w http.ResponseWriter, r *http.Request) {
+			if r.Method != http.MethodPost {
+				http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+				return
+			}
+			ip := realIP(r)
+			if !enrollRL.Allow(ip) {
+				http.Error(w, `{"error":"too many enrollment attempts, try again later"}`, http.StatusTooManyRequests)
+				return
+			}
+			var req struct {
+				Token      string `json:"token"`
+				Hostname   string `json:"hostname"`
+				OS         string `json:"os"`
+				Arch       string `json:"arch"`
+				PMGVersion string `json:"pmg_version"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+				http.Error(w, "invalid JSON", http.StatusBadRequest)
+				return
+			}
+			tok, err := enrollment.ValidateAndConsume(req.Token)
+			if err != nil {
+				http.Error(w, `{"error":"unauthorized"}`, http.StatusUnauthorized)
+				return
+			}
+
+			// Determine group: use token's group or find/create "Enrolled Agents"
+			groupID := tok.GroupID
+			if groupID == "" && deps.Groups != nil {
+				const autoGroupName = "Enrolled Agents"
+				for _, g := range deps.Groups.ListGroups() {
+					if g.Name == autoGroupName {
+						groupID = g.ID
+						break
+					}
+				}
+				if groupID == "" {
+					g, gErr := deps.Groups.CreateGroup(autoGroupName)
+					if gErr != nil {
+						http.Error(w, "internal error", http.StatusInternalServerError)
+						return
+					}
+					groupID = g.ID
+				}
+			}
+
+			var plainKey string
+			var apiKeyID string
+			if deps.Groups != nil && groupID != "" {
+				keyName := req.Hostname + " (enrolled)"
+				pk, key, kErr := deps.Groups.CreateAPIKey(groupID, keyName)
+				if kErr != nil {
+					http.Error(w, "internal error", http.StatusInternalServerError)
+					return
+				}
+				plainKey = pk
+				apiKeyID = key.ID
+			}
+
+			agentID := genID()
+			agent := Agent{
+				ID:         agentID,
+				Hostname:   req.Hostname,
+				OS:         req.OS,
+				Arch:       req.Arch,
+				PMGVersion: req.PMGVersion,
+				RemoteIP:   ip,
+				GroupID:    groupID,
+				APIKeyID:   apiKeyID,
+				EnrolledAt: time.Now().UTC(),
+			}
+			if err := enrollment.RegisterAgent(agent); err != nil {
+				http.Error(w, "internal error", http.StatusInternalServerError)
+				return
+			}
+
+			if deps.Audit != nil {
+				deps.Audit.Log("agent_enrolled", req.Hostname,
+					fmt.Sprintf("ip=%s os=%s arch=%s", ip, req.OS, req.Arch))
+			}
+
+			// Determine gRPC endpoint
+			endpoint := deps.GRPCAddr
+			if endpoint == "" {
+				// Derive from request host by replacing port with 8443
+				host := r.Host
+				if idx := strings.LastIndex(host, ":"); idx != -1 {
+					host = host[:idx]
+				}
+				endpoint = host + ":8443"
+			}
+
+			writeJSON(w, map[string]any{
+				"api_key":  plainKey,
+				"endpoint": endpoint,
+				"insecure": false,
+				"group_id": groupID,
+				"agent_id": agentID,
+			})
+		})
+
+		// GET /api/agents — admin only
+		mux.HandleFunc("/api/agents", func(w http.ResponseWriter, r *http.Request) {
+			s, ok := sessionFromContext(r)
+			if !ok {
+				http.Error(w, `{"error":"unauthorized"}`, http.StatusUnauthorized)
+				return
+			}
+			if s.Role != RoleAdmin {
+				http.Error(w, `{"error":"forbidden"}`, http.StatusForbidden)
+				return
+			}
+			if r.Method != http.MethodGet {
+				http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+				return
+			}
+			writeJSON(w, enrollment.ListAgents())
+		})
+
+		// PUT/DELETE /api/agents/{id} — admin only
+		mux.HandleFunc("/api/agents/", func(w http.ResponseWriter, r *http.Request) {
+			s, ok := sessionFromContext(r)
+			if !ok {
+				http.Error(w, `{"error":"unauthorized"}`, http.StatusUnauthorized)
+				return
+			}
+			if s.Role != RoleAdmin {
+				http.Error(w, `{"error":"forbidden"}`, http.StatusForbidden)
+				return
+			}
+			agentID := strings.TrimPrefix(r.URL.Path, "/api/agents/")
+			if agentID == "" {
+				http.NotFound(w, r)
+				return
+			}
+			switch r.Method {
+			case http.MethodPut:
+				var body struct {
+					GroupID     string `json:"group_id"`
+					RemoveGroup bool   `json:"remove_group"`
+				}
+				if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+					http.Error(w, "invalid JSON", http.StatusBadRequest)
+					return
+				}
+				newGroup := body.GroupID
+				if body.RemoveGroup {
+					newGroup = ""
+				}
+				if err := enrollment.AssignAgentGroup(agentID, newGroup); err != nil {
+					http.Error(w, err.Error(), http.StatusNotFound)
+					return
+				}
+				if deps.Audit != nil {
+					deps.Audit.Log("agent_group_assigned", agentID, fmt.Sprintf("group=%s", newGroup))
+				}
+				writeJSON(w, map[string]bool{"ok": true})
+			case http.MethodDelete:
+				if err := enrollment.RemoveAgent(agentID); err != nil {
+					http.Error(w, err.Error(), http.StatusNotFound)
+					return
+				}
+				if deps.Audit != nil {
+					deps.Audit.Log("agent_removed", agentID, "")
+				}
+				w.WriteHeader(http.StatusNoContent)
+			default:
+				http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			}
+		})
+
+		// GET /api/enrollment-tokens — admin only
+		// POST /api/enrollment-tokens — admin only
+		mux.HandleFunc("/api/enrollment-tokens", func(w http.ResponseWriter, r *http.Request) {
+			s, ok := sessionFromContext(r)
+			if !ok {
+				http.Error(w, `{"error":"unauthorized"}`, http.StatusUnauthorized)
+				return
+			}
+			if s.Role != RoleAdmin {
+				http.Error(w, `{"error":"forbidden"}`, http.StatusForbidden)
+				return
+			}
+			switch r.Method {
+			case http.MethodGet:
+				writeJSON(w, enrollment.ListTokens())
+			case http.MethodPost:
+				var body struct {
+					Label    string `json:"label"`
+					GroupID  string `json:"group_id"`
+					MaxUses  int    `json:"max_uses"`
+					TTLHours int    `json:"ttl_hours"`
+				}
+				if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+					http.Error(w, "invalid JSON", http.StatusBadRequest)
+					return
+				}
+				ttl := time.Duration(body.TTLHours) * time.Hour
+				plaintext, tok, err := enrollment.CreateToken(body.Label, body.GroupID, s.Username, body.MaxUses, ttl)
+				if err != nil {
+					http.Error(w, err.Error(), http.StatusInternalServerError)
+					return
+				}
+				if deps.Audit != nil {
+					deps.Audit.Log("enrollment_token_created", tok.ID, fmt.Sprintf("label=%s group=%s", tok.Label, tok.GroupID))
+				}
+				w.WriteHeader(http.StatusCreated)
+				writeJSON(w, map[string]any{
+					"token":  tok,
+					"secret": plaintext, // shown exactly once
+				})
+			default:
+				http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			}
+		})
+
+		// DELETE /api/enrollment-tokens/{id} — admin only
+		mux.HandleFunc("/api/enrollment-tokens/", func(w http.ResponseWriter, r *http.Request) {
+			s, ok := sessionFromContext(r)
+			if !ok {
+				http.Error(w, `{"error":"unauthorized"}`, http.StatusUnauthorized)
+				return
+			}
+			if s.Role != RoleAdmin {
+				http.Error(w, `{"error":"forbidden"}`, http.StatusForbidden)
+				return
+			}
+			tokenID := strings.TrimPrefix(r.URL.Path, "/api/enrollment-tokens/")
+			if tokenID == "" {
+				http.NotFound(w, r)
+				return
+			}
+			if r.Method != http.MethodDelete {
+				http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+				return
+			}
+			if err := enrollment.RevokeToken(tokenID); err != nil {
+				http.Error(w, err.Error(), http.StatusNotFound)
+				return
+			}
+			if deps.Audit != nil {
+				deps.Audit.Log("enrollment_token_revoked", tokenID, "")
+			}
+			w.WriteHeader(http.StatusNoContent)
+		})
+	}
+
 	// --- Auth & user-management endpoints ---
 	if deps.Users != nil && deps.Sessions != nil {
 		users := deps.Users
@@ -787,13 +1084,18 @@ func Handler(dataDir string, deps HandlerDeps) http.Handler {
 	return mux
 }
 
-// sessionMiddleware protects /api/* routes (except /auth/*) with session auth.
+// sessionMiddleware protects /api/* routes (except /auth/* and unauthenticated enroll) with session auth.
 func sessionMiddleware(h http.Handler, sessions *SessionStore) http.Handler {
+	// unauthenticated API routes — session is attached if present but never required
+	unauthAPI := map[string]bool{
+		"/api/me":     true,
+		"/api/enroll": true,
+	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Always pass: static files, auth endpoints, healthz
+		// Always pass: static files, auth endpoints, healthz, install.sh
 		path := r.URL.Path
-		if !strings.HasPrefix(path, "/api/") || path == "/api/me" {
-			// For /api/me: still attach session if present, but don't block
+		if !strings.HasPrefix(path, "/api/") || unauthAPI[path] {
+			// Attach session if present (for /api/me etc.) but never block
 			if strings.HasPrefix(path, "/api/") {
 				if c, err := r.Cookie(SessionCookieName); err == nil {
 					if s, ok := sessions.Get(c.Value); ok {
