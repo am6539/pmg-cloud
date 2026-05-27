@@ -16,6 +16,7 @@ import (
 	controltowerv1grpc "buf.build/gen/go/safedep/api/grpc/go/safedep/services/controltower/v1/controltowerv1grpc"
 	malysisv1grpc "buf.build/gen/go/safedep/api/grpc/go/safedep/services/malysis/v1/malysisv1grpc"
 	servicev1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/services/controltower/v1"
+	malysisv1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/services/malysis/v1"
 	"github.com/yourorg/pmg-cloud/dashboard"
 	"github.com/yourorg/pmg-cloud/server"
 	"golang.org/x/net/http2"
@@ -212,6 +213,11 @@ func main() {
 		// HTTP sync endpoint: POST /api/sync — protobuf over HTTP/1.1 for agents
 		// that cannot reach gRPC (e.g. behind Cloudflare Tunnel on public hostnames).
 		dashMux.Handle("/api/sync", httpSyncHandler(svc))
+		// HTTP malysis endpoint: POST /api/malysis — protobuf over HTTP/1.1 fallback
+		// for agents that cannot reach gRPC malysis relay (e.g. behind Cloudflare Tunnel).
+		if relay != nil {
+			dashMux.Handle("/api/malysis", httpMalysisHandler(relay, svc))
+		}
 		dashMux.Handle("/", dashboard.Handler(*dataDir, deps))
 
 		// Route gRPC (HTTP/2, Content-Type: application/grpc) to grpcServer;
@@ -292,6 +298,54 @@ func httpSyncHandler(svc *server.Server) http.Handler {
 		w.Header().Set("Content-Type", "application/x-protobuf")
 		if _, err := w.Write(respBody); err != nil {
 			slog.Warn("http-sync: failed to write response", "err", err)
+		}
+	})
+}
+
+// httpMalysisHandler returns an http.Handler for POST /api/malysis.
+// It accepts a protobuf QueryPackageAnalysisRequest body and responds with
+// QueryPackageAnalysisResponse. This provides an HTTP/1.1 alternative to the
+// gRPC malysis relay for agents behind Cloudflare Tunnel.
+func httpMalysisHandler(relay *server.MalysisRelay, svc *server.Server) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+
+		apiKey := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
+		if err := svc.ValidateAPIKey(apiKey); err != nil {
+			http.Error(w, `{"error":"unauthorized"}`, http.StatusUnauthorized)
+			return
+		}
+
+		body, err := io.ReadAll(io.LimitReader(r.Body, 4<<20))
+		if err != nil {
+			http.Error(w, "read error", http.StatusBadRequest)
+			return
+		}
+
+		var req malysisv1.QueryPackageAnalysisRequest
+		if err := proto.Unmarshal(body, &req); err != nil {
+			http.Error(w, "invalid protobuf body", http.StatusBadRequest)
+			return
+		}
+
+		resp, err := relay.QueryPackageAnalysis(r.Context(), &req)
+		if err != nil {
+			slog.Error("http-malysis error", "err", err)
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+
+		respBody, err := proto.Marshal(resp)
+		if err != nil {
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/x-protobuf")
+		if _, err := w.Write(respBody); err != nil {
+			slog.Warn("http-malysis: failed to write response", "err", err)
 		}
 	})
 }

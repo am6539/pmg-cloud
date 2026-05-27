@@ -160,6 +160,23 @@ func (s *Server) SyncEvents(ctx context.Context, req *servicev1.SyncEventsReques
 	return &servicev1.SyncEventsResponse{ConfirmedEventIds: confirmedIDs}, nil
 }
 
+// ValidateAPIKey returns nil if key is accepted, or a non-nil error if auth fails.
+// When no keys are configured, every key is accepted (open mode).
+func (s *Server) ValidateAPIKey(key string) error {
+	if s.groups != nil && s.groups.HasKeys() {
+		if _, ok := s.groups.ResolveKey(key); !ok {
+			return fmt.Errorf("invalid API key")
+		}
+		return nil
+	}
+	if len(s.apiKeys) > 0 {
+		if _, ok := s.apiKeys[key]; !ok {
+			return fmt.Errorf("invalid API key")
+		}
+	}
+	return nil
+}
+
 // SyncEventsHTTP is the auth-aware core for the HTTP /api/sync endpoint.
 // apiKey is extracted from Authorization: Bearer <key> by the caller.
 func (s *Server) SyncEventsHTTP(ctx context.Context, apiKey, remoteIP string, req *servicev1.SyncEventsRequest) (*servicev1.SyncEventsResponse, error) {
