@@ -85,26 +85,49 @@ docker compose up -d
 
 Data is persisted in `./data/` (Docker volume mount).
 
-## Enrolling agents (recommended)
+## Deploying agents (recommended)
 
-Instead of manually distributing API keys, use the enrollment flow:
+Use the **Deploy New Agent** wizard in the dashboard for the easiest setup:
 
-1. Open the dashboard → **Agents** → **Create Enrollment Token**
-2. Set an expiry and optional max-use limit, then copy the one-liner shown:
+1. Open the dashboard → **Agents** → **+ Deploy New Agent**
+2. Select OS (Linux / macOS) and architecture
+3. Configure token settings (label, group, expiry, max uses)
+4. Copy the generated one-liner and run it on the target machine:
    ```bash
    curl -sSfL http://your-server:8080/install.sh | sh -s -- --token=pmgenroll_xxx
    ```
-3. Run that command on the target machine. PMG is installed and automatically configured to point at this server with a freshly generated API key.
-4. The agent appears in the **Agents** table under the token's group.
 
-### Manual enrollment via CLI
+The script installs PMG, enrolls the machine, and wires PMG into the shell automatically. Restart the terminal to activate.
+
+The agent appears in the **Agents** table once it has enrolled.
+
+### Interactive enrollment (PMG already installed)
 
 ```bash
-# On the target machine (PMG must already be installed)
-pmg cloud enroll \
-  --endpoint http://your-server:8080 \
-  --token pmgenroll_xxx
+pmg cloud enroll
+# Prompts for server address and token interactively
 ```
+
+Or pass flags for scripted use:
+
+```bash
+pmg cloud enroll --endpoint http://your-server:8080 --token pmgenroll_xxx
+```
+
+## Air-gapped agents (SafeDep relay)
+
+pmg-cloud acts as a relay for SafeDep malware analysis, so agents on machines with no direct internet access can still check packages:
+
+```yaml
+# ~/.pmg/config.yml on the agent machine
+malysis:
+  addr: "your-server:8443"              # pmg-cloud gRPC address
+  insecure: false                        # true if running --insecure
+aikido_intel:
+  base_url: "http://your-server:8080"   # pmg-cloud Aikido mirror
+```
+
+pmg-cloud forwards `QueryPackageAnalysis` requests to SafeDep and caches responses for 1 hour. Agents need no outbound internet access at all.
 
 ## Configuring PMG manually
 
