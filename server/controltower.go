@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"net"
 	"os"
@@ -156,6 +157,41 @@ func (s *Server) SyncEvents(ctx context.Context, req *servicev1.SyncEventsReques
 		endpointID = endpoint.GetIdentifier()
 	}
 	slog.Info("synced events", "count", len(confirmedIDs), "tenant", tenantID, "endpoint", endpointID)
+	return &servicev1.SyncEventsResponse{ConfirmedEventIds: confirmedIDs}, nil
+}
+
+// SyncEventsHTTP is the auth-aware core for the HTTP /api/sync endpoint.
+// apiKey is extracted from Authorization: Bearer <key> by the caller.
+func (s *Server) SyncEventsHTTP(ctx context.Context, apiKey, remoteIP string, req *servicev1.SyncEventsRequest) (*servicev1.SyncEventsResponse, error) {
+	var groupID string
+	if s.groups != nil && s.groups.HasKeys() {
+		gid, ok := s.groups.ResolveKey(apiKey)
+		if !ok {
+			return nil, fmt.Errorf("invalid API key")
+		}
+		groupID = gid
+	} else if len(s.apiKeys) > 0 {
+		if _, ok := s.apiKeys[apiKey]; !ok {
+			return nil, fmt.Errorf("invalid API key")
+		}
+	}
+
+	endpoint := req.GetEndpoint()
+	var confirmedIDs []string
+	for _, ev := range req.GetEvents() {
+		id := ev.GetEventId()
+		if err := s.storeEvent(ev, endpoint, "", groupID, remoteIP); err != nil {
+			slog.Error("failed to store event (http-sync)", "id", id, "err", err)
+			continue
+		}
+		confirmedIDs = append(confirmedIDs, id)
+	}
+
+	endpointID := ""
+	if endpoint != nil {
+		endpointID = endpoint.GetIdentifier()
+	}
+	slog.Info("synced events (http)", "count", len(confirmedIDs), "endpoint", endpointID)
 	return &servicev1.SyncEventsResponse{ConfirmedEventIds: confirmedIDs}, nil
 }
 

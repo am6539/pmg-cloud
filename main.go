@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	"flag"
 	"fmt"
+	"io"
 	"log/slog"
 	"net"
 	"net/http"
@@ -14,6 +15,7 @@ import (
 
 	controltowerv1grpc "buf.build/gen/go/safedep/api/grpc/go/safedep/services/controltower/v1/controltowerv1grpc"
 	malysisv1grpc "buf.build/gen/go/safedep/api/grpc/go/safedep/services/malysis/v1/malysisv1grpc"
+	servicev1 "buf.build/gen/go/safedep/api/protocolbuffers/go/safedep/services/controltower/v1"
 	"github.com/yourorg/pmg-cloud/dashboard"
 	"github.com/yourorg/pmg-cloud/server"
 	"golang.org/x/net/http2"
@@ -21,6 +23,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/reflection"
+	"google.golang.org/protobuf/proto"
 )
 
 func main() {
@@ -206,6 +209,9 @@ func main() {
 
 		dashMux := http.NewServeMux()
 		dashMux.Handle("/healthz", dashboard.HealthzHandler(*dataDir, mirror))
+		// HTTP sync endpoint: POST /api/sync — protobuf over HTTP/1.1 for agents
+		// that cannot reach gRPC (e.g. behind Cloudflare Tunnel on public hostnames).
+		dashMux.Handle("/api/sync", httpSyncHandler(svc))
 		dashMux.Handle("/", dashboard.Handler(*dataDir, deps))
 
 		// Route gRPC (HTTP/2, Content-Type: application/grpc) to grpcServer;
@@ -228,6 +234,66 @@ func main() {
 		// No HTTP, dedicated gRPC only — block here
 		select {}
 	}
+}
+
+// httpSyncHandler returns an http.Handler for POST /api/sync.
+// It accepts a protobuf SyncEventsRequest body and responds with SyncEventsResponse.
+// This provides an HTTP/1.1 alternative to gRPC for agents behind Cloudflare Tunnel.
+func httpSyncHandler(svc *server.Server) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+
+		apiKey := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
+
+		body, err := io.ReadAll(io.LimitReader(r.Body, 4<<20))
+		if err != nil {
+			http.Error(w, "read error", http.StatusBadRequest)
+			return
+		}
+
+		var req servicev1.SyncEventsRequest
+		if err := proto.Unmarshal(body, &req); err != nil {
+			http.Error(w, "invalid protobuf body", http.StatusBadRequest)
+			return
+		}
+
+		// Extract remote IP, honouring Cloudflare's CF-Connecting-IP header.
+		remoteIP := r.RemoteAddr
+		if h, _, e := net.SplitHostPort(remoteIP); e == nil {
+			remoteIP = h
+		}
+		if cfIP := r.Header.Get("CF-Connecting-IP"); cfIP != "" {
+			remoteIP = cfIP
+		} else if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+			if parts := strings.SplitN(xff, ",", 2); len(parts) > 0 {
+				remoteIP = strings.TrimSpace(parts[0])
+			}
+		}
+
+		resp, err := svc.SyncEventsHTTP(r.Context(), apiKey, remoteIP, &req)
+		if err != nil {
+			if strings.Contains(err.Error(), "invalid API key") {
+				http.Error(w, `{"error":"unauthorized"}`, http.StatusUnauthorized)
+			} else {
+				slog.Error("http-sync error", "err", err)
+				http.Error(w, "internal error", http.StatusInternalServerError)
+			}
+			return
+		}
+
+		respBody, err := proto.Marshal(resp)
+		if err != nil {
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/x-protobuf")
+		if _, err := w.Write(respBody); err != nil {
+			slog.Warn("http-sync: failed to write response", "err", err)
+		}
+	})
 }
 
 func runRetentionLoop(dataDir string, days int) {
