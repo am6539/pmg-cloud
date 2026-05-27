@@ -13,6 +13,7 @@ import (
 	"time"
 
 	controltowerv1grpc "buf.build/gen/go/safedep/api/grpc/go/safedep/services/controltower/v1/controltowerv1grpc"
+	malysisv1grpc "buf.build/gen/go/safedep/api/grpc/go/safedep/services/malysis/v1/malysisv1grpc"
 	"github.com/yourorg/pmg-cloud/dashboard"
 	"github.com/yourorg/pmg-cloud/server"
 	"google.golang.org/grpc"
@@ -105,6 +106,15 @@ func main() {
 
 	s := grpc.NewServer(serverOpts...)
 	controltowerv1grpc.RegisterEndpointServiceServer(s, svc)
+
+	relay, err := server.NewMalysisRelay()
+	if err != nil {
+		slog.Warn("malysis relay unavailable — agents cannot use pmg-cloud as SafeDep proxy", "err", err)
+	} else {
+		malysisv1grpc.RegisterMalwareAnalysisServiceServer(s, relay)
+		slog.Info("malysis relay registered")
+	}
+
 	reflection.Register(s) // enables grpcurl introspection
 
 	// Use tcp4 to ensure IPv4 binding on WSL2 where "tcp" defaults to IPv6-only.
