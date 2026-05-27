@@ -448,12 +448,14 @@ async function loadPage(){
 
 /* ---- HELPERS ---- */
 function fmt(n){return(n||0).toLocaleString();}
-function fmtDate(s){if(!s)return'&mdash;';var d=new Date(s);return d.toLocaleString(undefined,{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'});}
+function fmtDate(s){if(!s)return'—';var d=new Date(s);return d.toLocaleString(undefined,{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'});}
 function bdg(t,c){c=c||'gray';return'<span class="badge b-'+c+'">'+h(t)+'</span>';}
-function actionBdg(a){var m={allow:'green',block:'red',suspicious:'yellow',allow_install:'teal',block_install:'red',allow_lockfile:'teal'};return bdg(a||'&mdash;',m[a]||'gray');}
-function ecoBdg(e){var m={npm:'blue',pypi:'yellow',go:'teal',cargo:'red',maven:'gray',nuget:'blue'};return bdg(e||'&mdash;',m[(e||'').toLowerCase()]||'gray');}
+function actionBdg(a){var m={allow:'green',block:'red',suspicious:'yellow',allow_install:'teal',block_install:'red',allow_lockfile:'teal'};return bdg(a||'—',m[a]||'gray');}
+function ecoBdg(e){var m={npm:'blue',pypi:'yellow',go:'teal',cargo:'red',maven:'gray',nuget:'blue'};return bdg(e||'—',m[(e||'').toLowerCase()]||'gray');}
 function h(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
-function trunc(s,n){n=n||30;return(!s)?'&mdash;':s.length>n?h(s.slice(0,n))+'&hellip;':h(s);}
+function trunc(s,n){n=n||30;return(!s)?'—':s.length>n?h(s.slice(0,n))+'…':h(s);}
+function malwareBdg(v){if(v===true)return bdg('Malware','red');if(v===false)return bdg('Clean','green');return'—';}
+function verifiedBdg(v){if(v===true)return bdg('Verified','teal');return'—';}
 
 function computeDelta(days){
   if(!days||days.length<4)return'';
@@ -601,10 +603,10 @@ async function renderEndpoints(){
   return'<tr class="clickable" onclick="openEpDrawer('+i+')">'+
   '<td>'+bdg(online?'Online':'Offline',online?'green':'gray')+'</td>'+
   '<td class="trunc mono" title="'+h(ep.endpoint_id)+'" style="font-size:11px">'+trunc(ep.endpoint_id,18)+'</td>'+
-  '<td>'+h(ep.hostname||'&mdash;')+'</td>'+
-  '<td>'+bdg(ep.os||'&mdash;','gray')+'</td>'+
-  '<td class="mono" style="font-size:12px">'+h(ep.remote_ip||'&mdash;')+'</td>'+
-  '<td>'+h(ep.tool_version||'&mdash;')+'</td>'+
+  '<td>'+(ep.hostname?h(ep.hostname):'—')+'</td>'+
+  '<td>'+bdg(ep.os||'—','gray')+'</td>'+
+  '<td class="mono" style="font-size:12px">'+(ep.remote_ip?h(ep.remote_ip):'—')+'</td>'+
+  '<td>'+(ep.tool_version?h(ep.tool_version):'—')+'</td>'+
   '<td>'+fmt(ep.sessions)+'</td>'+
   '<td>'+fmt(ep.total_packages)+'</td>'+
   '<td>'+((ep.blocked_packages||0)>0?bdg(fmt(ep.blocked_packages),'red'):'0')+'</td>'+
@@ -639,11 +641,11 @@ function openEpDrawer(i){
     document.getElementById('drawer-body').innerHTML=
 '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px;font-size:13px">'+
 '<div><div class="lbl">Status</div><div>'+bdg(epOnline(ep.last_seen)?'Online':'Offline',epOnline(ep.last_seen)?'green':'gray')+'</div></div>'+
-'<div><div class="lbl">IP Address</div><div class="mono" style="font-size:12px">'+h(ep.remote_ip||'&mdash;')+'</div></div>'+
+'<div><div class="lbl">IP Address</div><div class="mono" style="font-size:12px">'+(ep.remote_ip?h(ep.remote_ip):'—')+'</div></div>'+
 '<div><div class="lbl">Endpoint ID</div><div class="mono" style="font-size:10px;word-break:break-all">'+h(ep.endpoint_id)+'</div></div>'+
-'<div><div class="lbl">Machine ID</div><div class="mono" style="font-size:11px">'+h(ep.machine_id||'&mdash;')+'</div></div>'+
-'<div><div class="lbl">OS / Arch</div><div>'+h(ep.os||'&mdash;')+' / '+h(ep.arch||'&mdash;')+'</div></div>'+
-'<div><div class="lbl">PMG Version</div><div>'+h(ep.tool_version||'&mdash;')+'</div></div>'+
+'<div><div class="lbl">Machine ID</div><div class="mono" style="font-size:11px">'+(ep.machine_id?h(ep.machine_id):'—')+'</div></div>'+
+'<div><div class="lbl">OS / Arch</div><div>'+(ep.os?h(ep.os):'—')+' / '+(ep.arch?h(ep.arch):'—')+'</div></div>'+
+'<div><div class="lbl">PMG Version</div><div>'+(ep.tool_version?h(ep.tool_version):'—')+'</div></div>'+
 '<div><div class="lbl">Sessions</div><div>'+fmt(ep.sessions)+'</div></div>'+
 '<div><div class="lbl">Last Seen</div><div style="font-size:12px">'+fmtDate(ep.last_seen)+'</div></div>'+
 '<div><div class="lbl">Total Packages</div><div>'+fmt(ep.total_packages)+'</div></div>'+
@@ -654,7 +656,7 @@ function openEpDrawer(i){
   return'<div style="padding:8px 0;border-bottom:1px solid var(--bd);font-size:12px">'+
   '<div class="flex" style="margin-bottom:3px">'+actionBdg(ev.action)+' '+ecoBdg(ev.ecosystem)+
   ' <span style="color:var(--tx4)">'+fmtDate(ev.received_at)+'</span></div>'+
-  '<div style="color:var(--tx2)">'+h(ev.package_name||'&mdash;')+(ev.package_version?' <span style="color:var(--tx4)">v'+h(ev.package_version)+'</span>':'')+'</div></div>';
+  '<div style="color:var(--tx2)">'+(ev.package_name?h(ev.package_name):'—')+(ev.package_version?' <span style="color:var(--tx4)">v'+h(ev.package_version)+'</span>':'')+'</div></div>';
 }).join(''):'<div class="empty">No events</div>')+'</div>';
   }).catch(function(e){document.getElementById('drawer-body').innerHTML='<div class="empty">Error: '+h(e.message)+'</div>';});
 }
@@ -730,13 +732,18 @@ function openPkgModal(i){
     document.getElementById('pkg-evts').innerHTML=
 '<div style="font-size:13px;font-weight:600;margin-bottom:8px">Recent Events ('+fl.length+')</div>'+
 '<div class="tbl-wrap" style="max-height:280px;overflow-y:auto"><table>'+
-'<thead><tr><th>Time</th><th>Action</th><th>Version</th><th>Endpoint</th></tr></thead><tbody>'+
+'<thead><tr><th>Time</th><th>Action</th><th>Version</th><th>Malware</th><th>Verified</th><th>Analysis</th><th>Endpoint</th></tr></thead><tbody>'+
 (fl.length?fl.map(function(e){
+  var aid=e.analysis_id||'';
+  var aidCell=aid?'<a href="https://app.safedep.io/analysis/'+h(aid)+'" target="_blank" class="mono" style="font-size:10px;color:var(--acc)">'+h(aid.slice(0,12))+'…</a>':'—';
   return'<tr><td style="font-size:12px">'+fmtDate(e.received_at)+'</td>'+
   '<td>'+actionBdg(e.action)+'</td>'+
-  '<td class="mono">'+h(e.package_version||'&mdash;')+'</td>'+
+  '<td class="mono">'+(e.package_version?h(e.package_version):'—')+'</td>'+
+  '<td>'+malwareBdg(e.is_malware)+'</td>'+
+  '<td>'+verifiedBdg(e.is_verified)+'</td>'+
+  '<td>'+aidCell+'</td>'+
   '<td class="trunc" style="font-size:11px">'+trunc(e.endpoint_id,20)+'</td></tr>';
-}).join(''):'<tr><td colspan="4" class="empty">No events</td></tr>')+
+}).join(''):'<tr><td colspan="7" class="empty">No events</td></tr>')+
 '</tbody></table></div>';
   }).catch(function(){});
 }
