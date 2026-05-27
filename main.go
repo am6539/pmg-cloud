@@ -16,26 +16,29 @@ import (
 	malysisv1grpc "buf.build/gen/go/safedep/api/grpc/go/safedep/services/malysis/v1/malysisv1grpc"
 	"github.com/yourorg/pmg-cloud/dashboard"
 	"github.com/yourorg/pmg-cloud/server"
+	"golang.org/x/net/http2"
+	"golang.org/x/net/http2/h2c"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/reflection"
 )
 
 func main() {
-	addr := flag.String("addr", ":8443", "gRPC listen address (host:port)")
+	addr := flag.String("addr", ":8443", "gRPC listen address (host:port); set empty to disable dedicated gRPC port")
 	tlsCert := flag.String("tls-cert", "", "TLS certificate file (PEM)")
 	tlsKey := flag.String("tls-key", "", "TLS key file (PEM)")
-	insecure := flag.Bool("insecure", false, "Disable TLS (plaintext gRPC, for local dev)")
+	insecure := flag.Bool("insecure", false, "Disable TLS on dedicated gRPC port (plaintext gRPC)")
 	dataDir := flag.String("data-dir", "data", "Directory for event storage")
 	apiKeysFlag := flag.String("api-keys", "", "Comma-separated list of accepted API keys (empty = no auth)")
 	httpAddr := flag.String("http-addr", ":8080", "HTTP dashboard listen address (empty to disable)")
+	grpcPublicAddr := flag.String("grpc-public-addr", "", "Public gRPC address reported to enrolling agents (e.g. host:443 for Cloudflare Tunnel)")
 	retentionDays := flag.Int("retention-days", 30, "Delete event files older than this many days (0 = disabled)")
 	dashUser := flag.String("dash-user", "", "Dashboard HTTP basic auth username (empty = no auth)")
 	dashPass := flag.String("dash-pass", "", "Dashboard HTTP basic auth password")
 	malwareRefreshInterval := flag.Duration("malware-refresh-interval", 6*time.Hour, "Auto-refresh interval for the Aikido malware feed (0 = disabled)")
 	flag.Parse()
 
-	// Also support API keys from env
+	// Env overrides for all string flags
 	apiKeysRaw := *apiKeysFlag
 	if apiKeysRaw == "" {
 		apiKeysRaw = os.Getenv("PMG_CLOUD_API_KEYS")
@@ -46,6 +49,10 @@ func main() {
 	if *dashPass == "" {
 		*dashPass = os.Getenv("PMG_CLOUD_DASH_PASS")
 	}
+	if *grpcPublicAddr == "" {
+		*grpcPublicAddr = os.Getenv("PMG_CLOUD_GRPC_PUBLIC_ADDR")
+	}
+
 	var apiKeys []string
 	for _, k := range strings.Split(apiKeysRaw, ",") {
 		if k = strings.TrimSpace(k); k != "" {
@@ -56,25 +63,6 @@ func main() {
 	if err := os.MkdirAll(*dataDir, 0o755); err != nil {
 		slog.Error("failed to create data dir", "err", err)
 		os.Exit(1)
-	}
-
-	var serverOpts []grpc.ServerOption
-
-	if *insecure {
-		slog.Warn("TLS disabled — plaintext gRPC only, do not use in production")
-	} else {
-		if *tlsCert == "" || *tlsKey == "" {
-			slog.Error("--tls-cert and --tls-key are required unless --insecure is set")
-			os.Exit(1)
-		}
-		cert, err := tls.LoadX509KeyPair(*tlsCert, *tlsKey)
-		if err != nil {
-			slog.Error("failed to load TLS credentials", "err", err)
-			os.Exit(1)
-		}
-		serverOpts = append(serverOpts, grpc.Creds(credentials.NewTLS(&tls.Config{
-			Certificates: []tls.Certificate{cert},
-		})))
 	}
 
 	groups, err := dashboard.NewGroupStore(*dataDir)
@@ -104,25 +92,37 @@ func main() {
 		os.Exit(1)
 	}
 
-	s := grpc.NewServer(serverOpts...)
-	controltowerv1grpc.RegisterEndpointServiceServer(s, svc)
+	// Build gRPC server (used both for dedicated port and h2c mux)
+	var serverOpts []grpc.ServerOption
+	if *insecure {
+		slog.Warn("TLS disabled — plaintext gRPC only, do not use in production")
+	} else if *addr != "" {
+		if *tlsCert == "" || *tlsKey == "" {
+			slog.Error("--tls-cert and --tls-key are required unless --insecure is set (or set --addr= to skip dedicated gRPC port)")
+			os.Exit(1)
+		}
+		cert, err := tls.LoadX509KeyPair(*tlsCert, *tlsKey)
+		if err != nil {
+			slog.Error("failed to load TLS credentials", "err", err)
+			os.Exit(1)
+		}
+		serverOpts = append(serverOpts, grpc.Creds(credentials.NewTLS(&tls.Config{
+			Certificates: []tls.Certificate{cert},
+		})))
+	}
+
+	grpcServer := grpc.NewServer(serverOpts...)
+	controltowerv1grpc.RegisterEndpointServiceServer(grpcServer, svc)
 
 	relay, err := server.NewMalysisRelay()
 	if err != nil {
 		slog.Warn("malysis relay unavailable — agents cannot use pmg-cloud as SafeDep proxy", "err", err)
 	} else {
-		malysisv1grpc.RegisterMalwareAnalysisServiceServer(s, relay)
+		malysisv1grpc.RegisterMalwareAnalysisServiceServer(grpcServer, relay)
 		slog.Info("malysis relay registered")
 	}
 
-	reflection.Register(s) // enables grpcurl introspection
-
-	// Use tcp4 to ensure IPv4 binding on WSL2 where "tcp" defaults to IPv6-only.
-	lis, err := net.Listen("tcp4", *addr)
-	if err != nil {
-		slog.Error("failed to listen", "addr", *addr, "err", err)
-		os.Exit(1)
-	}
+	reflection.Register(grpcServer)
 
 	authMode := "no auth"
 	if groups.HasKeys() {
@@ -135,7 +135,6 @@ func main() {
 	} else if len(apiKeys) > 0 {
 		authMode = fmt.Sprintf("%d static API key(s)", len(apiKeys))
 	}
-	slog.Info("pmg-cloud started", "addr", *addr, "insecure", *insecure, "auth", authMode, "data_dir", *dataDir)
 
 	effectiveRetention := *retentionDays
 	if cfgStore != nil {
@@ -147,55 +146,87 @@ func main() {
 		go runRetentionLoop(*dataDir, effectiveRetention)
 	}
 
-	if *httpAddr != "" {
+	// Dedicated gRPC port (optional — skip when addr is empty or grpc-public-addr is set)
+	if *addr != "" && *grpcPublicAddr == "" {
+		lis, err := net.Listen("tcp4", *addr)
+		if err != nil {
+			slog.Error("failed to listen on gRPC addr", "addr", *addr, "err", err)
+			os.Exit(1)
+		}
+		slog.Info("pmg-cloud started", "grpc_addr", *addr, "insecure", *insecure, "auth", authMode, "data_dir", *dataDir)
 		go func() {
-			// Use tcp4 explicitly — Go defaults to IPv6-only on Linux/WSL2,
-			// which prevents Windows browsers from connecting via localhost.
-			ln, err := net.Listen("tcp4", *httpAddr)
-			if err != nil {
-				slog.Error("dashboard listen error", "addr", *httpAddr, "err", err)
-				return
-			}
-			slog.Info("dashboard started", "addr", *httpAddr)
-			mirror := dashboard.NewMalwareMirror(*dataDir + "/aikido-mirror")
-			if *malwareRefreshInterval > 0 {
-				mirror.StartAutoRefresh(context.Background(), *malwareRefreshInterval)
-			}
-
-			userStore, err := dashboard.NewUserStore(*dataDir, *dashUser, *dashPass)
-			if err != nil {
-				slog.Error("failed to open user store", "err", err)
-				return
-			}
-			sessionStore := dashboard.NewSessionStore()
-
-			deps := dashboard.HandlerDeps{
-				Mirror:     mirror,
-				Groups:     groups,
-				Config:     cfgStore,
-				Audit:      auditLog,
-				Webhook:    webhookDelivery,
-				Users:      userStore,
-				Sessions:   sessionStore,
-				Enrollment:   enrollmentStore,
-				GRPCAddr:     *addr,
-				GRPCInsecure: *insecure,
-			}
-
-			// /healthz is always unauthenticated (load balancers, Docker HEALTHCHECK).
-			// Session-based auth is handled inside dashboard.Handler for all /api/* routes.
-			mux := http.NewServeMux()
-			mux.Handle("/healthz", dashboard.HealthzHandler(*dataDir, mirror))
-			mux.Handle("/", dashboard.Handler(*dataDir, deps))
-			if err := http.Serve(ln, mux); err != nil {
-				slog.Error("dashboard error", "err", err)
+			if err := grpcServer.Serve(lis); err != nil {
+				slog.Error("gRPC server error", "err", err)
 			}
 		}()
 	}
 
-	if err := s.Serve(lis); err != nil {
-		slog.Error("server error", "err", err)
-		os.Exit(1)
+	// HTTP dashboard + h2c gRPC mux on httpAddr
+	if *httpAddr != "" {
+		ln, err := net.Listen("tcp4", *httpAddr)
+		if err != nil {
+			slog.Error("dashboard listen error", "addr", *httpAddr, "err", err)
+			os.Exit(1)
+		}
+
+		mirror := dashboard.NewMalwareMirror(*dataDir + "/aikido-mirror")
+		if *malwareRefreshInterval > 0 {
+			mirror.StartAutoRefresh(context.Background(), *malwareRefreshInterval)
+		}
+
+		userStore, err := dashboard.NewUserStore(*dataDir, *dashUser, *dashPass)
+		if err != nil {
+			slog.Error("failed to open user store", "err", err)
+			os.Exit(1)
+		}
+		sessionStore := dashboard.NewSessionStore()
+
+		// GRPCAddr reported to enrolling agents:
+		//   - grpc-public-addr if set (Cloudflare Tunnel / reverse proxy)
+		//   - otherwise the dedicated gRPC listen addr
+		grpcAddrForClients := *grpcPublicAddr
+		if grpcAddrForClients == "" {
+			grpcAddrForClients = *addr
+		}
+		// Insecure only applies when there is no public proxy handling TLS
+		grpcInsecureForClients := *insecure && *grpcPublicAddr == ""
+
+		deps := dashboard.HandlerDeps{
+			Mirror:       mirror,
+			Groups:       groups,
+			Config:       cfgStore,
+			Audit:        auditLog,
+			Webhook:      webhookDelivery,
+			Users:        userStore,
+			Sessions:     sessionStore,
+			Enrollment:   enrollmentStore,
+			GRPCAddr:     grpcAddrForClients,
+			GRPCInsecure: grpcInsecureForClients,
+		}
+
+		dashMux := http.NewServeMux()
+		dashMux.Handle("/healthz", dashboard.HealthzHandler(*dataDir, mirror))
+		dashMux.Handle("/", dashboard.Handler(*dataDir, deps))
+
+		// Route gRPC (HTTP/2, Content-Type: application/grpc) to grpcServer;
+		// everything else goes to the dashboard. Wrapped in h2c so Cloudflare
+		// Tunnel (and other reverse proxies) can forward HTTP/2 cleartext.
+		combined := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.ProtoMajor == 2 && strings.HasPrefix(r.Header.Get("Content-Type"), "application/grpc") {
+				grpcServer.ServeHTTP(w, r)
+				return
+			}
+			dashMux.ServeHTTP(w, r)
+		})
+
+		h2cServer := &http2.Server{}
+		slog.Info("dashboard started", "addr", *httpAddr, "grpc_mux", true)
+		if err := http.Serve(ln, h2c.NewHandler(combined, h2cServer)); err != nil {
+			slog.Error("dashboard error", "err", err)
+		}
+	} else if *addr != "" && *grpcPublicAddr == "" {
+		// No HTTP, dedicated gRPC only — block here
+		select {}
 	}
 }
 

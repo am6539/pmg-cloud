@@ -9,6 +9,8 @@ services:
       - ./certs:/certs:ro
     environment:
       - PMG_CLOUD_API_KEYS=changeme
-    # gRPC runs without TLS — nginx handles HTTPS for the dashboard on port 443.
-    # To enable TLS on gRPC, remove --insecure and mount valid certs to /certs.
-    command: ["--addr=:8443", "--data-dir=/data", "--insecure"]
+      # Set to your public domain — gRPC is muxed on port 8080 alongside the dashboard.
+      # Cloudflare Tunnel forwards HTTP/2 so gRPC reaches agents via host:443 with valid TLS.
+      - PMG_CLOUD_GRPC_PUBLIC_ADDR=package.thanhvpga.qzz.io:443
+    # Disable dedicated gRPC port (--addr=); gRPC is served on --http-addr via h2c mux.
+    command: ["--addr=", "--data-dir=/data", "--http-addr=:8080"]
