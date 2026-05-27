@@ -306,7 +306,7 @@ func Handler(dataDir string, deps HandlerDeps) http.Handler {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		var filtered []Event
+		filtered := make([]Event, 0)
 		for _, ev := range events {
 			if ev.EndpointID == endpointID {
 				filtered = append(filtered, ev)
