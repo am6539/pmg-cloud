@@ -865,7 +865,7 @@ async function createEnrollToken(){
       body:JSON.stringify({label:label,group_id:groupId,max_uses:maxUses,ttl_hours:ttlHours})});
     if(!r.ok){var d=await r.json().catch(function(){return{};});showToast(d.error||'Error','error');return;}
     var data=await r.json();
-    var token=data.token||'';
+    var token=data.secret||'';
     var origin=window.location.origin;
     var installCmd='curl -fsSL '+origin+'/install.sh | sh -s -- --token='+token;
     closeModal();
