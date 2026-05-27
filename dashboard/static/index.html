@@ -563,12 +563,13 @@ async function renderEvents(){
 '<div class="tbl-wrap"><table>'+
 '<thead><tr><th>Time</th><th>Type</th><th>Ecosystem</th><th>Package</th><th>Version</th><th>Action</th><th>Endpoint</th></tr></thead>'+
 '<tbody>'+(events.length?events.map(function(ev){
+  var isSummary=ev.event_type==='SESSION_SUMMARY';
+  var ecoCell=isSummary?'<td><span style="font-size:11px;color:var(--tx3)">'+h(ev.package_manager||'&mdash;')+'</span></td>':('<td>'+ecoBdg(ev.ecosystem)+'</td>');
+  var pkgCell=isSummary?'<td colspan="2" style="font-size:11px;color:var(--tx2)">analyzed: '+h(String(ev.total_analyzed||0))+' &nbsp;allowed: <span style="color:#4caf50">'+h(String(ev.allowed_count||0))+'</span> &nbsp;blocked: <span style="color:#f44336">'+h(String(ev.blocked_count||0))+'</span></td>':('<td class="trunc" title="'+h(ev.package_name)+'">'+h(ev.package_name||'&mdash;')+'</td><td style="font-size:12px;color:var(--tx3)">'+h(ev.package_version||'&mdash;')+'</td>');
+  var actionCell=isSummary?'<td><span style="font-size:11px;color:var(--tx3)">'+h(ev.outcome||'&mdash;')+'</span></td>':('<td>'+actionBdg(ev.action)+'</td>');
   return'<tr><td style="white-space:nowrap;font-size:12px">'+fmtDate(ev.received_at)+'</td>'+
   '<td>'+bdg(ev.event_type||'&mdash;','gray')+'</td>'+
-  '<td>'+ecoBdg(ev.ecosystem)+'</td>'+
-  '<td class="trunc" title="'+h(ev.package_name)+'">'+h(ev.package_name||'&mdash;')+'</td>'+
-  '<td style="font-size:12px;color:var(--tx3)">'+h(ev.package_version||'&mdash;')+'</td>'+
-  '<td>'+actionBdg(ev.action)+'</td>'+
+  ecoCell+pkgCell+actionCell+
   '<td class="trunc" style="font-size:11px;color:var(--tx4)">'+trunc(ev.endpoint_id,18)+'</td></tr>';
 }).join(''):'<tr><td colspan="7" class="empty">No events</td></tr>')+
 '</tbody></table></div>'+
