@@ -64,8 +64,13 @@ curl -fsSL https://raw.githubusercontent.com/am6539/pmg/main/install.sh | sh
 echo "Enrolling with PMG Cloud..."
 pmg cloud enroll --endpoint="$PMG_SERVER" --token="$PMG_TOKEN"
 
-echo "Done! PMG is installed and enrolled."
-echo "Run 'pmg setup install' to wire PMG into your shell (if not already)."
+# Wire PMG into shell (aliases + shims)
+echo "Wiring PMG into your shell..."
+pmg setup install
+
+echo ""
+echo "Done! PMG is installed, enrolled, and active."
+echo "Restart your terminal (or run: source ~/.bashrc) for shell integration to take effect."
 `
 
 // Handler returns an http.Handler for the dashboard.
