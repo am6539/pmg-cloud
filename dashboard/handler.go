@@ -39,6 +39,55 @@ type HandlerDeps struct {
 	GRPCAddr   string           // gRPC endpoint reported to enrolling agents
 }
 
+const installScriptTemplatePS1 = `# PMG Windows Install Script
+$ErrorActionPreference = 'Stop'
+$PMG_SERVER = '{{SERVER_URL}}'
+$PMG_TOKEN  = if ($env:PMG_TOKEN) { $env:PMG_TOKEN } else { '' }
+
+foreach ($arg in $args) {
+  if ($arg -match '^--token=(.+)$') { $PMG_TOKEN = $Matches[1] }
+}
+
+if (-not $PMG_TOKEN) {
+  Write-Error '--token=TOKEN is required'; exit 1
+}
+
+# Detect architecture
+$arch = if ([Environment]::Is64BitOperatingSystem) { 'amd64' } else { '386' }
+
+# Fetch latest release from GitHub
+Write-Host 'Fetching latest PMG release...'
+$rel   = Invoke-RestMethod 'https://api.github.com/repos/am6539/pmg/releases/latest'
+$asset = $rel.assets | Where-Object { $_.name -like "pmg_windows_${arch}.exe" } | Select-Object -First 1
+if (-not $asset) { Write-Error "No Windows binary found for arch: $arch"; exit 1 }
+
+# Download binary
+$dir = "$env:LOCALAPPDATA\pmg"
+New-Item -ItemType Directory -Force -Path $dir | Out-Null
+$bin = "$dir\pmg.exe"
+Write-Host "Downloading PMG $($rel.tag_name)..."
+Invoke-WebRequest $asset.browser_download_url -OutFile $bin
+
+# Add to PATH (user scope)
+$userPath = [Environment]::GetEnvironmentVariable('Path', 'User')
+if ($userPath -notlike "*$dir*") {
+  [Environment]::SetEnvironmentVariable('Path', "$userPath;$dir", 'User')
+  $env:Path += ";$dir"
+}
+
+# Enroll with pmg-cloud
+Write-Host 'Enrolling with PMG Cloud...'
+& $bin cloud enroll --endpoint="$PMG_SERVER" --token="$PMG_TOKEN"
+
+# Wire PMG into shell
+Write-Host 'Setting up PMG...'
+& $bin setup install
+
+Write-Host ''
+Write-Host 'Done! PMG is installed, enrolled, and active.'
+Write-Host 'Restart your terminal for PATH changes to take effect.'
+`
+
 const installScriptTemplate = `#!/bin/sh
 set -eu
 PMG_SERVER="{{SERVER_URL}}"
@@ -596,7 +645,7 @@ func Handler(dataDir string, deps HandlerDeps) http.Handler {
 		enrollment := deps.Enrollment
 		enrollRL := newIPRateLimiter() // tighter: 5 req/min per IP
 
-		// GET /install.sh — unauthenticated, serves dynamic install script
+		// GET /install.sh — unauthenticated, serves dynamic install script (Linux/macOS)
 		mux.HandleFunc("/install.sh", func(w http.ResponseWriter, r *http.Request) {
 			scheme := "http"
 			if r.TLS != nil {
@@ -604,6 +653,18 @@ func Handler(dataDir string, deps HandlerDeps) http.Handler {
 			}
 			serverURL := scheme + "://" + r.Host
 			script := strings.ReplaceAll(installScriptTemplate, "{{SERVER_URL}}", serverURL)
+			w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+			fmt.Fprint(w, script)
+		})
+
+		// GET /install.ps1 — unauthenticated, serves dynamic PowerShell install script (Windows)
+		mux.HandleFunc("/install.ps1", func(w http.ResponseWriter, r *http.Request) {
+			scheme := "http"
+			if r.TLS != nil {
+				scheme = "https"
+			}
+			serverURL := scheme + "://" + r.Host
+			script := strings.ReplaceAll(installScriptTemplatePS1, "{{SERVER_URL}}", serverURL)
 			w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 			fmt.Fprint(w, script)
 		})

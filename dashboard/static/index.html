@@ -957,9 +957,11 @@ function _showWizStep(){
       return'<button onclick="window._wiz.arch=\''+a+'\';_showWizStep()" style="padding:7px 16px;border:1px solid '+(sel?'var(--pr)':'var(--bd)')+';border-radius:7px;background:'+(sel?'var(--pr-bg)':'var(--sf)')+';color:'+(sel?'var(--pr)':'var(--tx)')+';cursor:pointer;font-size:12.5px;font-weight:'+(sel?600:400)+'">'+lbl+'</button>';
     };
     body='<div style="margin-bottom:18px"><div style="font-size:13px;font-weight:600;margin-bottom:10px">Operating System</div>'+
-    '<div style="display:flex;gap:12px">'+osCard('linux','Linux','🐧')+osCard('macos','macOS','🍎')+'</div></div>'+
-    '<div><div style="font-size:13px;font-weight:600;margin-bottom:8px">Architecture</div>'+
-    '<div style="display:flex;gap:8px">'+archBtn('x86_64','x86_64 (Intel / AMD)')+archBtn('arm64','ARM64 (Apple Silicon / ARM)')+'</div></div>'+
+    '<div style="display:flex;gap:12px">'+osCard('linux','Linux','🐧')+osCard('macos','macOS','🍎')+osCard('windows','Windows','🪟')+'</div></div>'+
+    (w.os!=='windows'?
+      '<div><div style="font-size:13px;font-weight:600;margin-bottom:8px">Architecture</div>'+
+      '<div style="display:flex;gap:8px">'+archBtn('x86_64','x86_64 (Intel / AMD)')+archBtn('arm64','ARM64 (Apple Silicon / ARM)')+'</div></div>':
+      '<div style="font-size:12px;color:var(--tx3);padding:10px 12px;background:var(--hv);border-radius:8px;margin-top:4px">Architecture is detected automatically on Windows.</div>')+
     '<div class="modal-footer"><button class="btn btn-ghost" onclick="closeModal()">Cancel</button>'+
     '<button class="btn btn-primary" onclick="window._wiz.step=2;_showWizStep()">Next &rarr;</button></div>';
   }else if(w.step===2){
@@ -980,7 +982,7 @@ function _showWizStep(){
     '<span style="font-size:20px">✓</span><strong>Token created.</strong> Run the command below on the target machine.</div>'+
     '<div style="font-size:12px;color:var(--tx3);margin-bottom:6px">OS: <strong>'+h(w.os)+'</strong> &nbsp;·&nbsp; Arch: <strong>'+h(w.arch)+'</strong></div>'+
     '<div class="key-box" style="font-size:11.5px;word-break:break-all;line-height:1.6" id="wiz-cmd-box">'+h(cmd)+'</div>'+
-    '<div style="font-size:11.5px;color:var(--tx3);margin-top:10px;line-height:1.5">This command installs PMG, enrolls the machine, and wires PMG into the shell automatically.<br>Restart the terminal after running to activate shell integration.</div>'+
+    '<div style="font-size:11.5px;color:var(--tx3);margin-top:10px;line-height:1.5">'+(w.os==='windows'?'Run in <strong>PowerShell</strong> (not CMD). The script installs PMG, enrolls the machine, and adds pmg.exe to PATH automatically.':'This command installs PMG, enrolls the machine, and wires PMG into the shell automatically.')+'<br>Restart the terminal after running to activate.</div>'+
     '<div class="modal-footer">'+
     '<button class="btn btn-primary" id="wiz-copy-btn" onclick="navigator.clipboard.writeText(document.getElementById(\'wiz-cmd-box\').textContent).then(function(){document.getElementById(\'wiz-copy-btn\').textContent=\'✓ Copied\';})">&#128203; Copy Command</button>'+
     '<button class="btn btn-ghost" onclick="closeModal();renderAgents()">Done</button></div>';
@@ -1000,7 +1002,10 @@ async function _wizDeploy(){
       body:JSON.stringify({label:w.label,group_id:w.group_id,max_uses:w.max_uses,ttl_hours:w.ttl_hours})});
     if(!r.ok){var d=await r.json().catch(function(){return{};});showToast(d.error||'Error','error');return;}
     var data=await r.json();
-    w.installCmd='curl -fsSL '+window.location.origin+'/install.sh | sh -s -- --token='+data.secret;
+    var origin=window.location.origin;
+    w.installCmd=w.os==='windows'
+      ?'$env:PMG_TOKEN=\''+data.secret+'\'; irm '+origin+'/install.ps1 | iex'
+      :'curl -fsSL '+origin+'/install.sh | sh -s -- --token='+data.secret;
     w.step=3;_showWizStep();
   }catch(e){showToast('Error: '+e.message,'error');}
 }
