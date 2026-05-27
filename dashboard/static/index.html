@@ -583,6 +583,10 @@ function evNext(){S.evOffset+=50;loadPage();}
 
 /* ---- ENDPOINTS ---- */
 var epList=[];
+function epOnline(last_seen){
+  if(!last_seen)return false;
+  return(Date.now()-new Date(last_seen).getTime())<60*60*1000; // within 1 hour
+}
 async function renderEndpoints(){
   epList=await api('/api/endpoints?'+buildQ());
   var csvUrl='/api/endpoints?'+buildQ({format:'csv'});
@@ -590,18 +594,21 @@ async function renderEndpoints(){
 '<div class="sec-title">Endpoints <small>'+epList.length+' total</small>'+
 '<a href="'+csvUrl+'" download="endpoints.csv" class="btn btn-sm btn-ghost">&#8681; CSV</a></div>'+
 '<div class="tbl-wrap"><table>'+
-'<thead><tr><th>Endpoint ID</th><th>Hostname</th><th>OS</th><th>PMG Version</th><th>Sessions</th><th>Packages</th><th>Blocked</th><th>Last Seen</th></tr></thead>'+
+'<thead><tr><th>Status</th><th>Endpoint ID</th><th>Hostname</th><th>OS</th><th>IP Address</th><th>PMG Version</th><th>Sessions</th><th>Packages</th><th>Blocked</th><th>Last Seen</th></tr></thead>'+
 '<tbody>'+(epList.length?epList.map(function(ep,i){
+  var online=epOnline(ep.last_seen);
   return'<tr class="clickable" onclick="openEpDrawer('+i+')">'+
+  '<td>'+bdg(online?'Online':'Offline',online?'green':'gray')+'</td>'+
   '<td class="trunc mono" title="'+h(ep.endpoint_id)+'" style="font-size:11px">'+trunc(ep.endpoint_id,18)+'</td>'+
   '<td>'+h(ep.hostname||'&mdash;')+'</td>'+
   '<td>'+bdg(ep.os||'&mdash;','gray')+'</td>'+
+  '<td class="mono" style="font-size:12px">'+h(ep.remote_ip||'&mdash;')+'</td>'+
   '<td>'+h(ep.tool_version||'&mdash;')+'</td>'+
   '<td>'+fmt(ep.sessions)+'</td>'+
   '<td>'+fmt(ep.total_packages)+'</td>'+
   '<td>'+((ep.blocked_packages||0)>0?bdg(fmt(ep.blocked_packages),'red'):'0')+'</td>'+
   '<td style="font-size:12px;color:var(--tx3)">'+fmtDate(ep.last_seen)+'</td></tr>';
-}).join(''):'<tr><td colspan="8" class="empty">No endpoints</td></tr>')+
+}).join(''):'<tr><td colspan="10" class="empty">No endpoints</td></tr>')+
 '</tbody></table></div>'+versionCompliance(epList);
 }
 
@@ -630,6 +637,8 @@ function openEpDrawer(i){
   api('/api/endpoints/'+encodeURIComponent(ep.endpoint_id)+'/events').then(function(evs){
     document.getElementById('drawer-body').innerHTML=
 '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px;font-size:13px">'+
+'<div><div class="lbl">Status</div><div>'+bdg(epOnline(ep.last_seen)?'Online':'Offline',epOnline(ep.last_seen)?'green':'gray')+'</div></div>'+
+'<div><div class="lbl">IP Address</div><div class="mono" style="font-size:12px">'+h(ep.remote_ip||'&mdash;')+'</div></div>'+
 '<div><div class="lbl">Endpoint ID</div><div class="mono" style="font-size:10px;word-break:break-all">'+h(ep.endpoint_id)+'</div></div>'+
 '<div><div class="lbl">Machine ID</div><div class="mono" style="font-size:11px">'+h(ep.machine_id||'&mdash;')+'</div></div>'+
 '<div><div class="lbl">OS / Arch</div><div>'+h(ep.os||'&mdash;')+' / '+h(ep.arch||'&mdash;')+'</div></div>'+
@@ -732,11 +741,87 @@ function openPkgModal(i){
 }
 
 /* ---- CI/CD ---- */
+function ciSetupGuide(){
+  var grpcAddr=window.location.hostname+':8443';
+  return'<div class="card" style="margin-top:18px">'+
+'<div class="card-title" style="display:flex;justify-content:space-between;align-items:center">'+
+'&#128196; CI/CD Integration Guide'+
+'<button class="btn btn-sm btn-ghost" onclick="this.closest(\'.card\').querySelector(\'.ci-guide-body\').style.display=this.closest(\'.card\').querySelector(\'.ci-guide-body\').style.display===\'none\'?\'block\':\'none\';this.textContent=this.textContent.includes(\'Show\')?\'Hide guide\':\'Show guide\'">Show guide</button></div>'+
+'<div class="ci-guide-body" style="display:none">'+
+'<p style="font-size:13px;color:var(--tx3);margin-bottom:14px">PMG auto-reports package install events from CI pipelines to this server. Once configured, the tables above populate with per-repository and per-branch data.</p>'+
+
+'<div style="font-size:12px;font-weight:600;color:var(--tx2);margin-bottom:8px">&#x2460; Get an API key</div>'+
+'<p style="font-size:13px;color:var(--tx3);margin-bottom:14px">Go to <strong>Groups</strong> &rarr; create or select a group &rarr; <em>Add Key</em>. Copy the key — it will only be shown once. Save it as a CI secret (e.g. <code>PMG_API_KEY</code>).</p>'+
+
+'<div style="font-size:12px;font-weight:600;color:var(--tx2);margin-bottom:8px">&#x2461; GitHub Actions</div>'+
+'<pre style="background:var(--hv2);border:1px solid var(--bd);border-radius:7px;padding:12px;font-size:11px;overflow-x:auto;margin-bottom:14px">'+h(
+'# Add to your workflow .github/workflows/*.yml\n'+
+'jobs:\n'+
+'  build:\n'+
+'    runs-on: ubuntu-latest\n'+
+'    steps:\n'+
+'      - uses: actions/checkout@v4\n\n'+
+'      # Install PMG\n'+
+'      - name: Install PMG\n'+
+'        run: curl -sSfL https://get.pmg.dev | sh\n\n'+
+'      # Configure PMG to report to your self-hosted server\n'+
+'      - name: Configure PMG Cloud\n'+
+'        run: |\n'+
+'          echo "PMG_CLOUD_ENABLED=true"                                   >> $GITHUB_ENV\n'+
+'          echo "PMG_CLOUD_ADDR='+grpcAddr+'"                    >> $GITHUB_ENV\n'+
+'          echo "PMG_CLOUD_API_KEY=${{ secrets.PMG_API_KEY }}"             >> $GITHUB_ENV\n'+
+'          echo "PMG_CLOUD_INSECURE=true"                                  >> $GITHUB_ENV\n'+
+'          echo "PMG_CLOUD_ENDPOINT_ID=github-actions/${{ github.repository }}" >> $GITHUB_ENV\n'+
+'          echo "PMG_CLOUD_AUTO_SYNC_ENABLED=false"                        >> $GITHUB_ENV\n\n'+
+'      - name: Setup PMG shims\n'+
+'        run: pmg setup install\n\n'+
+'      # Your normal build steps — PMG intercepts npm/pip/etc automatically\n'+
+'      - run: npm install\n\n'+
+'      # Flush events to PMG Cloud at job end\n'+
+'      - name: Sync events\n'+
+'        if: always()\n'+
+'        run: pmg cloud sync'
+)+'</pre>'+
+
+'<div style="font-size:12px;font-weight:600;color:var(--tx2);margin-bottom:8px">&#x2462; GitLab CI</div>'+
+'<pre style="background:var(--hv2);border:1px solid var(--bd);border-radius:7px;padding:12px;font-size:11px;overflow-x:auto;margin-bottom:14px">'+h(
+'# .gitlab-ci.yml\n'+
+'variables:\n'+
+'  PMG_CLOUD_ENABLED:          "true"\n'+
+'  PMG_CLOUD_ADDR:             "'+grpcAddr+'"\n'+
+'  PMG_CLOUD_API_KEY:          "$PMG_API_KEY"   # set in Settings > CI/CD > Variables\n'+
+'  PMG_CLOUD_INSECURE:         "true"\n'+
+'  PMG_CLOUD_ENDPOINT_ID:      "gitlab-ci/$CI_PROJECT_PATH"\n'+
+'  PMG_CLOUD_AUTO_SYNC_ENABLED: "false"\n\n'+
+'before_script:\n'+
+'  - curl -sSfL https://get.pmg.dev | sh\n'+
+'  - pmg setup install\n\n'+
+'build:\n'+
+'  script:\n'+
+'    - npm install     # intercepted by PMG\n'+
+'  after_script:\n'+
+'    - pmg cloud sync  # flush events'
+)+'</pre>'+
+
+'<div style="font-size:12px;font-weight:600;color:var(--tx2);margin-bottom:8px">&#x2463; Environment variable reference</div>'+
+'<div class="tbl-wrap"><table><thead><tr><th>Variable</th><th>Description</th></tr></thead><tbody>'+
+'<tr><td class="mono">PMG_CLOUD_ENABLED</td><td>Must be <code>true</code> to enable cloud sync</td></tr>'+
+'<tr><td class="mono">PMG_CLOUD_ADDR</td><td>gRPC address of this server (default port 8443)</td></tr>'+
+'<tr><td class="mono">PMG_CLOUD_API_KEY</td><td>API key from the Groups page</td></tr>'+
+'<tr><td class="mono">PMG_CLOUD_INSECURE</td><td>Set <code>true</code> if your server does not use TLS</td></tr>'+
+'<tr><td class="mono">PMG_CLOUD_ENDPOINT_ID</td><td>Stable identifier for this machine/pipeline. Use a per-repo value in CI so ephemeral runners don\'t create new endpoints on every run</td></tr>'+
+'<tr><td class="mono">PMG_CLOUD_AUTO_SYNC_ENABLED</td><td>Set <code>false</code> in CI — ephemeral runners are killed before auto-sync can flush. Run <code>pmg cloud sync</code> manually at job end instead</td></tr>'+
+'</tbody></table></div>'+
+'<p style="font-size:12px;color:var(--tx4);margin-top:10px">&#x2139; PMG auto-detects GitHub Actions and GitLab CI from environment variables and attaches provider/repository/branch metadata to each event.</p>'+
+'</div></div>';
+}
+
 async function renderCICD(){
   var ci=await api('/api/ci-stats?'+buildQ());
   var repos=ci.top_repositories||[];
   var branches=ci.top_branches||[];
   var providers=ci.by_provider||[];
+  var hasData=(ci.total_ci_events||0)>0;
   document.getElementById('content').innerHTML=
 '<div class="kpi-grid">'+
 '<div class="kpi"><div class="kpi-lbl">CI Events</div><div class="kpi-val">'+fmt(ci.total_ci_events||0)+'</div></div>'+
@@ -744,6 +829,7 @@ async function renderCICD(){
 '<div class="kpi"><div class="kpi-lbl">Branches</div><div class="kpi-val">'+fmt(branches.length)+'</div></div>'+
 '<div class="kpi"><div class="kpi-lbl">Providers</div><div class="kpi-val">'+fmt(providers.length)+'</div></div>'+
 '</div>'+
+(!hasData?'<div class="card" style="text-align:center;padding:28px 20px;color:var(--tx3);font-size:13px">No CI data yet. Follow the setup guide below to start collecting pipeline events.</div>':'')+
 '<div class="two-col">'+
 '<div>'+
 '<div class="sec-title">Repositories</div>'+
@@ -761,7 +847,8 @@ async function renderCICD(){
 '<div class="sec-title">Providers</div>'+
 '<div class="tbl-wrap"><table><thead><tr><th>Provider</th><th>Events</th><th>Blocked</th></tr></thead><tbody>'+
 (providers.length?providers.map(function(p){return'<tr><td>'+bdg(p.provider||'unknown','blue')+'</td><td>'+fmt(p.count)+'</td><td>'+(p.blocked>0?bdg(fmt(p.blocked),'red'):'0')+'</td></tr>';}).join(''):'<tr><td colspan="3" class="empty">No CI provider data</td></tr>')+
-'</tbody></table></div>';
+'</tbody></table></div>'+
+ciSetupGuide();
 }
 
 /* ---- MALWARE ---- */

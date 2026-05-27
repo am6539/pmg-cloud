@@ -26,6 +26,7 @@ type Event struct {
 	Hostname     string     `json:"hostname"`
 	OS           string     `json:"os"`
 	Arch         string     `json:"arch"`
+	RemoteIP     string     `json:"remote_ip,omitempty"`
 	EventType    string     `json:"event_type"`
 	// package_decision
 	Ecosystem      string `json:"ecosystem"`
@@ -101,6 +102,7 @@ type EndpointInfo struct {
 	Hostname          string    `json:"hostname"`
 	OS                string    `json:"os"`
 	Arch              string    `json:"arch"`
+	RemoteIP          string    `json:"remote_ip,omitempty"`
 	LastSeen          time.Time `json:"last_seen"`
 	Sessions          int       `json:"sessions"`
 	ToolVersion       string    `json:"tool_version"`
@@ -452,6 +454,9 @@ func EndpointList(events []Event) []EndpointInfo {
 			st.info.LastSeen = ev.ReceivedAt
 			if ev.ToolVersion != "" {
 				st.info.ToolVersion = ev.ToolVersion
+			}
+			if ev.RemoteIP != "" {
+				st.info.RemoteIP = ev.RemoteIP
 			}
 		}
 

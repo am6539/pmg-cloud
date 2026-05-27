@@ -1,21 +1,25 @@
 # pmg-cloud
 
 Self-hosted backend for [PMG (Package Manager Guard)](https://github.com/safedep/pmg).  
-Receives audit events from PMG agents via gRPC, stores them as JSONL, and serves a web dashboard.
+Receives audit events from PMG agents via gRPC, stores them as rotated JSONL files, and serves a web dashboard.
 
 ## Architecture
 
 ```
-PMG agent (npm/pip install)
+PMG agent (npm / pip / etc.)
     │  gRPC SyncEvents
     ▼
-pmg-cloud (gRPC :8443 + HTTP dashboard :8080)
-    │  JSONL files
-    ▼
-data/events-YYYYMMDD.jsonl
+pmg-cloud  (:8443 gRPC  +  :8080 HTTP dashboard)
+    │
+    ├── data/events-YYYYMMDD.jsonl   ← daily-rotated event log
+    ├── data/groups.json             ← group → API key mappings
+    ├── data/enrollment.json         ← enrollment tokens + registered agents
+    ├── data/users.json              ← dashboard user accounts
+    ├── data/config.json             ← webhook / retention settings
+    └── data/aikido-mirror/          ← offline malware feed cache
 ```
 
-## Quick Start (local / dev)
+## Quick Start (dev, no TLS)
 
 **Requirements:** Go 1.21+
 
@@ -23,37 +27,35 @@ data/events-YYYYMMDD.jsonl
 git clone <repo>
 cd pmg-cloud
 
-# Run without TLS (dev only)
 go run . \
   --insecure \
   --addr=:8443 \
-  --api-keys=your-secret-key \
+  --http-addr=:8080 \
   --data-dir=./data
 ```
 
-Dashboard opens at `http://localhost:8080`.
+Dashboard: `http://localhost:8080`  
+Default login: **admin / admin** (prompted to change password on first login).
 
-### WSL2 users (Windows browser)
+### WSL2 (Windows browser)
 
-The server binds IPv4 explicitly so `http://127.0.0.1:8080` should work.  
-If the browser can't connect, add a Windows Firewall rule once (Admin PowerShell):
+The server binds IPv4 explicitly so `http://127.0.0.1:8080` works.  
+If the browser cannot connect, add a firewall rule once (Admin PowerShell):
 
 ```powershell
 New-NetFirewallRule -DisplayName "PMG Cloud Dashboard" -Direction Inbound -Protocol TCP -LocalPort 8080 -Action Allow
 ```
 
-If `127.0.0.1` still fails, use the WSL2 IP directly:
+If `127.0.0.1` still fails, use the WSL2 IP:
 
 ```bash
-# In WSL — get IP
 ip addr show eth0 | grep "inet " | awk '{print $2}' | cut -d/ -f1
+# then open http://<that-ip>:8080
 ```
-
-Then open `http://<that-ip>:8080`.
 
 ## Production (Docker + TLS)
 
-**1. Generate or obtain a TLS certificate**
+**1. Generate a TLS certificate**
 
 ```bash
 mkdir -p certs
@@ -62,80 +64,155 @@ openssl req -x509 -newkey rsa:4096 -keyout certs/tls.key -out certs/tls.crt \
   -days 365 -nodes -subj "/CN=your-domain.com"
 ```
 
-**2. Set your API key**
+**2. Configure**
 
 ```bash
-export PMG_CLOUD_API_KEYS=your-secret-key
+export PMG_CLOUD_API_KEYS=changeme      # fallback static key (optional if using groups)
+export PMG_CLOUD_DASH_USER=admin
+export PMG_CLOUD_DASH_PASS=your-pass
 ```
 
-**3. Start with Docker Compose**
+**3. Start**
 
 ```bash
 docker compose up -d
 ```
-
-This starts pmg-cloud on port 8443 (gRPC/TLS) and 8080 (HTTP dashboard).  
-Data is persisted in `./data/`.
-
-### docker-compose.yml ports
 
 | Port | Purpose |
 |------|---------|
 | 8443 | gRPC (TLS) — PMG agents connect here |
 | 8080 | HTTP dashboard — browser access |
 
-## Configuring PMG to use this backend
+Data is persisted in `./data/` (Docker volume mount).
 
-In your PMG config (`~/.pmg/config.yml` or `config.yml`):
+## Enrolling agents (recommended)
+
+Instead of manually distributing API keys, use the enrollment flow:
+
+1. Open the dashboard → **Agents** → **Create Enrollment Token**
+2. Set an expiry and optional max-use limit, then copy the one-liner shown:
+   ```bash
+   curl -sSfL http://your-server:8080/install.sh | sh -s -- --token=pmgenroll_xxx
+   ```
+3. Run that command on the target machine. PMG is installed and automatically configured to point at this server with a freshly generated API key.
+4. The agent appears in the **Agents** table under the token's group.
+
+### Manual enrollment via CLI
+
+```bash
+# On the target machine (PMG must already be installed)
+pmg cloud enroll \
+  --endpoint http://your-server:8080 \
+  --token pmgenroll_xxx
+```
+
+## Configuring PMG manually
+
+Edit `~/.pmg/config.yml`:
 
 ```yaml
 cloud:
-  addr: "your-server:8443"       # gRPC address
-  api_key: "your-secret-key"     # must match --api-keys
-  tenant_id: "your-org"          # any identifier
-  insecure: false                # set true only for local dev (no TLS)
+  enabled: true
+  addr: "your-server:8443"
+  api_key: "your-api-key"      # from dashboard Groups page
+  insecure: false               # true only when server runs --insecure
 ```
 
-For local dev (insecure):
+Equivalent env vars (useful in CI):
+
+```bash
+PMG_CLOUD_ENABLED=true
+PMG_CLOUD_ADDR=your-server:8443
+PMG_CLOUD_API_KEY=your-api-key
+PMG_CLOUD_INSECURE=false
+PMG_CLOUD_ENDPOINT_ID=my-machine    # optional stable identifier
+```
+
+## CI/CD integration
+
+PMG auto-detects GitHub Actions and GitLab CI and attaches repository / branch / commit metadata to events. Set these env vars in your pipeline:
+
+```bash
+PMG_CLOUD_ENABLED=true
+PMG_CLOUD_ADDR=your-server:8443
+PMG_CLOUD_API_KEY=${{ secrets.PMG_API_KEY }}
+PMG_CLOUD_INSECURE=true               # remove if TLS is configured
+PMG_CLOUD_ENDPOINT_ID=github-actions/${{ github.repository }}
+PMG_CLOUD_AUTO_SYNC_ENABLED=false     # ephemeral runners — flush manually at job end
+```
+
+Add a final step to flush events:
 
 ```yaml
-cloud:
-  addr: "localhost:8443"
-  api_key: "your-secret-key"
-  tenant_id: "dev"
-  insecure: true
+- name: Sync PMG events
+  if: always()
+  run: pmg cloud sync
 ```
 
-## CLI flags
-
-| Flag | Default | Description |
-|------|---------|-------------|
-| `--addr` | `:8443` | gRPC listen address |
-| `--http-addr` | `:8080` | Dashboard HTTP address (empty to disable) |
-| `--data-dir` | `data` | Directory for JSONL event storage |
-| `--api-keys` | _(none)_ | Comma-separated API keys (or `PMG_CLOUD_API_KEYS` env) |
-| `--tls-cert` | _(required)_ | TLS certificate PEM file |
-| `--tls-key` | _(required)_ | TLS private key PEM file |
-| `--insecure` | `false` | Disable TLS — plaintext gRPC, dev only |
+Full snippets (GitHub Actions + GitLab CI) are also available in the dashboard under **CI / CD → Show guide**.
 
 ## Dashboard pages
 
 | Page | Description |
 |------|-------------|
-| Dashboard | KPI summary: endpoints, sessions, packages analyzed, malicious/blocked |
-| Events | Full event log with filters (event type, period) |
-| Endpoints | All PMG agents that have reported in |
-| Malicious Packages | Events where `is_malware=true` |
-| Policy Violations | Events where action is `BLOCKED` or `COOLDOWN_BLOCKED` |
-| Vulnerabilities | N/A — PMG tracks supply-chain malware, not CVEs |
+| Overview | KPI summary: endpoints, sessions, packages analyzed, malicious/blocked |
+| Events | Full event log with filters (type, ecosystem, period, action) |
+| Endpoints | All registered agents — online/offline status, IP address, last seen |
+| Packages | Top packages, risk leaderboard, ecosystem breakdown |
+| CI / CD | Per-repository and per-branch pipeline stats + setup guide |
+| Malware Feed | Aikido malware intelligence mirror — status and manual refresh |
+| Agents | Enrollment tokens, registered agents, group assignment |
+| Groups | API key groups — create groups, add/revoke keys |
+| Audit Log | Dashboard admin actions (user changes, key operations, config edits) |
+| Settings | Webhook URL, data retention days, dashboard preferences |
+
+## CLI flags
+
+| Flag | Default | Env override | Description |
+|------|---------|-------------|-------------|
+| `--addr` | `:8443` | — | gRPC listen address |
+| `--http-addr` | `:8080` | — | Dashboard HTTP address (empty to disable) |
+| `--data-dir` | `data` | — | Directory for all persistent storage |
+| `--tls-cert` | _(required)_ | — | TLS certificate PEM |
+| `--tls-key` | _(required)_ | — | TLS private key PEM |
+| `--insecure` | `false` | — | Disable TLS — dev only |
+| `--api-keys` | _(none)_ | `PMG_CLOUD_API_KEYS` | Comma-separated static API keys (fallback when no groups exist) |
+| `--dash-user` | _(none)_ | `PMG_CLOUD_DASH_USER` | Bootstrap admin username |
+| `--dash-pass` | _(none)_ | `PMG_CLOUD_DASH_PASS` | Bootstrap admin password |
+| `--retention-days` | `30` | — | Delete event files older than N days (0 = disabled) |
+| `--malware-refresh-interval` | `6h` | — | Auto-refresh interval for Aikido malware feed (0 = disabled) |
+
+## Auth model
+
+| Layer | Mechanism |
+|-------|-----------|
+| PMG agent → gRPC | API key in `authorization` metadata. Resolved via group store first, then static `--api-keys` list. |
+| Browser → dashboard | Session cookie (`pmg_session`, 8 h TTL). Login rate-limited to 10 attempts/min per IP. |
+| Dashboard users | Stored in `data/users.json`. Roles: `admin` (full access) and `viewer` (read-only). |
+
+## Health check
+
+`GET /healthz` — unauthenticated. Suitable for Docker `HEALTHCHECK` and load balancer probes.
+
+```json
+{
+  "ok": true,
+  "uptime": "3h22m10s",
+  "components": {
+    "data_dir":     { "status": "ok" },
+    "malware_feed": { "status": "ok", "detail": "npm=1423 pypi=876 entries" }
+  }
+}
+```
 
 ## Data format
 
-Events are appended to `data/events-YYYYMMDD.jsonl` (one JSON object per line, rotated daily).  
-Key fields: `event_type`, `package_name`, `ecosystem`, `action`, `is_malware`, `endpoint_id`, `tenant_id`, `received_at`.
+Events are appended to `data/events-YYYYMMDD.jsonl` (one JSON per line, rotated daily).  
+Key fields: `received_at`, `endpoint_id`, `remote_ip`, `event_type`, `package_name`, `ecosystem`, `action`, `is_malware`, `group_id`, `ci_repository`, `ci_branch`, `ci_provider`.
 
 ## Notes
 
-- Module path `github.com/yourorg/pmg-cloud` in `go.mod` is a placeholder — rename to your actual org before publishing.
+- The module path `github.com/yourorg/pmg-cloud` in `go.mod` is a placeholder — rename to your actual org before publishing.
 - `certs/` and `data/` are gitignored.
-- The dashboard uses a 5-second read cache to avoid repeated JSONL disk reads under load.
+- Dashboard read cache: 5-second TTL to avoid repeated JSONL disk reads under load.
+- The `aikido-mirror/` subdirectory can be safely deleted and will be rebuilt on the next refresh.

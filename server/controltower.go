@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"log/slog"
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
@@ -16,6 +17,7 @@ import (
 	"github.com/yourorg/pmg-cloud/dashboard"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
+	"google.golang.org/grpc/peer"
 	"google.golang.org/grpc/status"
 )
 
@@ -56,6 +58,7 @@ type storedEvent struct {
 	Hostname   string `json:"hostname,omitempty"`
 	OS         string `json:"os,omitempty"`
 	Arch       string `json:"arch,omitempty"`
+	RemoteIP   string `json:"remote_ip,omitempty"`
 
 	// --- pmg event type ---
 	EventType string `json:"event_type,omitempty"` // PACKAGE_DECISION | SESSION_SUMMARY | INSECURE_BYPASS | SANDBOX_OVERRIDE | ERROR | HOST_OBSERVATION
@@ -127,12 +130,21 @@ func (s *Server) SyncEvents(ctx context.Context, req *servicev1.SyncEventsReques
 		}
 	}
 
+	var remoteIP string
+	if p, ok := peer.FromContext(ctx); ok && p.Addr != nil {
+		if host, _, err := net.SplitHostPort(p.Addr.String()); err == nil {
+			remoteIP = host
+		} else {
+			remoteIP = p.Addr.String()
+		}
+	}
+
 	endpoint := req.GetEndpoint()
 
 	var confirmedIDs []string
 	for _, ev := range req.GetEvents() {
 		id := ev.GetEventId()
-		if err := s.storeEvent(ev, endpoint, tenantID, groupID); err != nil {
+		if err := s.storeEvent(ev, endpoint, tenantID, groupID, remoteIP); err != nil {
 			slog.Error("failed to store event", "id", id, "err", err)
 			continue
 		}
@@ -147,7 +159,7 @@ func (s *Server) SyncEvents(ctx context.Context, req *servicev1.SyncEventsReques
 	return &servicev1.SyncEventsResponse{ConfirmedEventIds: confirmedIDs}, nil
 }
 
-func (s *Server) storeEvent(ev *servicev1.ToolEvent, endpoint *ctv1.EndpointIdentity, tenantID, groupID string) error {
+func (s *Server) storeEvent(ev *servicev1.ToolEvent, endpoint *ctv1.EndpointIdentity, tenantID, groupID, remoteIP string) error {
 	raw, err := json.Marshal(ev)
 	if err != nil {
 		return err
@@ -180,6 +192,7 @@ func (s *Server) storeEvent(ev *servicev1.ToolEvent, endpoint *ctv1.EndpointIden
 			record.Arch = shortEnum(meta.GetArch().String(), "ENDPOINT_ARCH_")
 		}
 	}
+	record.RemoteIP = remoteIP
 
 	// invocation context
 	if ic := ev.GetInvocationContext(); ic != nil {
