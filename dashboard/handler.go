@@ -35,8 +35,9 @@ type HandlerDeps struct {
 	Webhook    *WebhookDelivery // may be nil
 	Users      *UserStore       // may be nil; enables session-based auth
 	Sessions   *SessionStore    // required when Users is set
-	Enrollment *EnrollmentStore // may be nil; enables agent enrollment
-	GRPCAddr   string           // gRPC endpoint reported to enrolling agents
+	Enrollment   *EnrollmentStore // may be nil; enables agent enrollment
+	GRPCAddr     string           // gRPC endpoint reported to enrolling agents
+	GRPCInsecure bool             // when true, enrolling agents skip TLS verification for gRPC
 }
 
 const installScriptTemplatePS1 = `# PMG Windows Install Script
@@ -776,7 +777,7 @@ func Handler(dataDir string, deps HandlerDeps) http.Handler {
 			writeJSON(w, map[string]any{
 				"api_key":  plainKey,
 				"endpoint": endpoint,
-				"insecure": false,
+				"insecure": deps.GRPCInsecure,
 				"group_id": groupID,
 				"agent_id": agentID,
 			})

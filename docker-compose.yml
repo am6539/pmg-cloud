@@ -9,5 +9,6 @@ services:
       - ./certs:/certs:ro
     environment:
       - PMG_CLOUD_API_KEYS=changeme
-    # For local dev without TLS:
-    # command: ["--addr=:8443", "--data-dir=/data", "--insecure", "--api-keys=changeme"]
+    # gRPC runs without TLS — nginx handles HTTPS for the dashboard on port 443.
+    # To enable TLS on gRPC, remove --insecure and mount valid certs to /certs.
+    command: ["--addr=:8443", "--data-dir=/data", "--insecure"]

@@ -177,8 +177,9 @@ func main() {
 				Webhook:    webhookDelivery,
 				Users:      userStore,
 				Sessions:   sessionStore,
-				Enrollment: enrollmentStore,
-				GRPCAddr:   *addr,
+				Enrollment:   enrollmentStore,
+				GRPCAddr:     *addr,
+				GRPCInsecure: *insecure,
 			}
 
 			// /healthz is always unauthenticated (load balancers, Docker HEALTHCHECK).
