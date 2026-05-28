@@ -1343,7 +1343,7 @@ async function renderPmgUpdateSection(){
     return'<tr>'+
     '<td>'+h(p.label)+'</td>'+
     '<td>'+(meta?'<span style="color:var(--ok)">&#10003;</span> <span style="font-size:11px;color:var(--tx3)">'+fmtDate(meta.uploaded_at)+'</span>':'<span style="color:var(--tx4)">—</span>')+'</td>'+
-    '<td>'+(meta?'<code style="font-size:10px">'+h(meta.sha256.slice(0,16))+'…</code>':'—')+'</td>'+
+    '<td>'+(meta?'<code style="font-size:10px">'+h((meta.sha256||'').slice(0,16))+'…</code>':'—')+'</td>'+
     '<td>'+
       '<label class="btn btn-sm btn-ghost" style="cursor:pointer">'+
         '&#8679; Upload'+
