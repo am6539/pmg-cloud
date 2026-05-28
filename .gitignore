@@ -1,3 +1,4 @@
 certs/*.key
 certs/*.crt
 data/
+*.bin

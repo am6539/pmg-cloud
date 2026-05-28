@@ -155,7 +155,9 @@ func (s *Server) SyncEvents(ctx context.Context, req *servicev1.SyncEventsReques
 	}
 
 	if s.enrollment != nil && apiKeyID != "" {
-		_ = s.enrollment.TouchAgentByAPIKeyID(apiKeyID)
+		if err := s.enrollment.TouchAgentByAPIKeyID(apiKeyID); err != nil {
+			slog.Warn("failed to touch agent last_seen", "key_id", apiKeyID, "err", err)
+		}
 	}
 
 	endpointID := ""
@@ -212,7 +214,9 @@ func (s *Server) SyncEventsHTTP(ctx context.Context, apiKey, remoteIP string, re
 	}
 
 	if s.enrollment != nil && apiKeyID != "" {
-		_ = s.enrollment.TouchAgentByAPIKeyID(apiKeyID)
+		if err := s.enrollment.TouchAgentByAPIKeyID(apiKeyID); err != nil {
+			slog.Warn("failed to touch agent last_seen", "key_id", apiKeyID, "err", err)
+		}
 	}
 
 	endpointID := ""

@@ -707,6 +707,14 @@ func Handler(dataDir string, deps HandlerDeps) http.Handler {
 				http.Error(w, "invalid JSON", http.StatusBadRequest)
 				return
 			}
+			if req.Token == "" || req.Hostname == "" {
+				http.Error(w, "invalid request: token and hostname are required", http.StatusBadRequest)
+				return
+			}
+			if len(req.Token) > 128 || len(req.Hostname) > 253 || len(req.OS) > 64 || len(req.Arch) > 32 || len(req.PMGVersion) > 32 {
+				http.Error(w, "invalid request: field too long", http.StatusBadRequest)
+				return
+			}
 			tok, err := enrollment.ValidateAndConsume(req.Token)
 			if err != nil {
 				http.Error(w, `{"error":"unauthorized"}`, http.StatusUnauthorized)
@@ -786,6 +794,33 @@ func Handler(dataDir string, deps HandlerDeps) http.Handler {
 				"group_id": groupID,
 				"agent_id": agentID,
 			})
+		})
+
+		// POST /api/heartbeat — agent-authenticated; updates LastSeen without a full sync
+		mux.HandleFunc("/api/heartbeat", func(w http.ResponseWriter, r *http.Request) {
+			if r.Method != http.MethodPost {
+				http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+				return
+			}
+			if deps.Groups == nil {
+				w.WriteHeader(http.StatusNoContent)
+				return
+			}
+			apiKey := r.Header.Get("Authorization")
+			if apiKey == "" {
+				http.Error(w, `{"error":"unauthorized"}`, http.StatusUnauthorized)
+				return
+			}
+			_, keyID, ok := deps.Groups.ResolveKeyWithID(apiKey)
+			if !ok {
+				http.Error(w, `{"error":"unauthorized"}`, http.StatusUnauthorized)
+				return
+			}
+			if err := enrollment.TouchAgentByAPIKeyID(keyID); err != nil {
+				http.Error(w, "internal error", http.StatusInternalServerError)
+				return
+			}
+			w.WriteHeader(http.StatusNoContent)
 		})
 
 		// GET /api/agents — admin only

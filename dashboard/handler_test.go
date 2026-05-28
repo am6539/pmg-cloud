@@ -18,14 +18,16 @@ func newHandlerMirror(t *testing.T, srvURL string) http.Handler {
 }
 
 func TestHandler_HealthzHandler_ReturnsOK(t *testing.T) {
-	h := HealthzHandler()
+	h := HealthzHandler(t.TempDir(), nil)
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/healthz", nil))
 
 	require.Equal(t, http.StatusOK, rec.Code)
-	var body map[string]bool
+	var body struct {
+		OK bool `json:"ok"`
+	}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
-	assert.True(t, body["ok"])
+	assert.True(t, body.OK)
 }
 
 func TestHandler_MalwareRefresh_Post_ReturnsStatus(t *testing.T) {

@@ -20,11 +20,17 @@ func DeleteOldFiles(dataDir string, retentionDays int) (int, error) {
 		return 0, fmt.Errorf("glob events files: %w", err)
 	}
 
-	cutoff := time.Now().UTC().AddDate(0, 0, -retentionDays)
+	now := time.Now().UTC()
+	cutoff := now.AddDate(0, 0, -retentionDays)
+	todayStr := now.Format("20060102")
+	safeFloor := now.AddDate(0, 0, -1).Format("20060102")
 	var deleted int
 	for _, f := range files {
 		base := filepath.Base(f)
 		dateStr := strings.TrimPrefix(strings.TrimSuffix(base, ".jsonl"), "events-")
+		if dateStr == todayStr || dateStr == safeFloor {
+			continue // never delete today or yesterday (open fd at midnight boundary)
+		}
 		fileDate, err := time.Parse("20060102", dateStr)
 		if err != nil {
 			continue // skip files that don't match expected naming
