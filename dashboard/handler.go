@@ -809,6 +809,42 @@ func Handler(dataDir string, deps HandlerDeps) http.Handler {
 			writeJSON(w, map[string]any{"scanned": len(results), "results": results})
 		})
 
+		// POST /api/config/pmg-update/fetch — fetch latest release from GitHub (admin)
+		mux.HandleFunc("/api/config/pmg-update/fetch", func(w http.ResponseWriter, r *http.Request) {
+			s, ok := sessionFromContext(r)
+			if !ok {
+				http.Error(w, `{"error":"unauthorized"}`, http.StatusUnauthorized)
+				return
+			}
+			if s.Role != RoleAdmin {
+				http.Error(w, `{"error":"forbidden"}`, http.StatusForbidden)
+				return
+			}
+			if r.Method != http.MethodPost {
+				http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+				return
+			}
+			var body struct {
+				Repo string `json:"repo"`
+			}
+			body.Repo = "am6539/pmg"
+			_ = json.NewDecoder(r.Body).Decode(&body)
+			if body.Repo == "" {
+				body.Repo = "am6539/pmg"
+			}
+			fetchCtx, cancel := context.WithTimeout(r.Context(), 5*time.Minute)
+			defer cancel()
+			result, err := updates.FetchFromGitHub(fetchCtx, body.Repo)
+			if err != nil {
+				http.Error(w, "fetch failed: "+err.Error(), http.StatusBadGateway)
+				return
+			}
+			if deps.Audit != nil {
+				deps.Audit.Log("pmg_binaries_fetched", result.Version, fmt.Sprintf("%d platforms", len(result.Results)))
+			}
+			writeJSON(w, result)
+		})
+
 		mux.HandleFunc("/download/", func(w http.ResponseWriter, r *http.Request) {
 			if r.Method != http.MethodGet {
 				http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
