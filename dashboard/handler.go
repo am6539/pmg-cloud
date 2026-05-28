@@ -2,12 +2,15 @@ package dashboard
 
 import (
 	"context"
+	"crypto/sha256"
 	"embed"
 	"encoding/csv"
 	"encoding/json"
 	"fmt"
+	"io"
 	"io/fs"
 	"net/http"
+	"os"
 	"sort"
 	"strconv"
 	"strings"
@@ -28,14 +31,15 @@ var staticFiles embed.FS
 
 // HandlerDeps bundles optional dependencies for the dashboard handler.
 type HandlerDeps struct {
-	Mirror     *MalwareMirror
-	Groups     *GroupStore      // may be nil
-	Config     *ConfigStore     // may be nil
-	Audit      *AuditLog        // may be nil
-	Webhook    *WebhookDelivery // may be nil
-	Users      *UserStore       // may be nil; enables session-based auth
-	Sessions   *SessionStore    // required when Users is set
+	Mirror       *MalwareMirror
+	Groups       *GroupStore      // may be nil
+	Config       *ConfigStore     // may be nil
+	Audit        *AuditLog        // may be nil
+	Webhook      *WebhookDelivery // may be nil
+	Users        *UserStore       // may be nil; enables session-based auth
+	Sessions     *SessionStore    // required when Users is set
 	Enrollment   *EnrollmentStore // may be nil; enables agent enrollment
+	Updates      *UpdateStore     // may be nil; enables PMG agent update management
 	GRPCAddr     string           // gRPC endpoint reported to enrolling agents
 	GRPCInsecure bool             // when true, enrolling agents skip TLS verification for gRPC
 }
@@ -656,6 +660,170 @@ func Handler(dataDir string, deps HandlerDeps) http.Handler {
 		})
 	}
 
+	// PMG Update APIs — admin only; active when Updates is wired.
+	if deps.Updates != nil {
+		updates := deps.Updates
+
+		mux.HandleFunc("/api/config/pmg-update", func(w http.ResponseWriter, r *http.Request) {
+			s, ok := sessionFromContext(r)
+			if !ok {
+				http.Error(w, `{"error":"unauthorized"}`, http.StatusUnauthorized)
+				return
+			}
+			if s.Role != RoleAdmin {
+				http.Error(w, `{"error":"forbidden"}`, http.StatusForbidden)
+				return
+			}
+			if r.Method != http.MethodGet {
+				http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+				return
+			}
+			writeJSON(w, updates.GetConfig())
+		})
+
+		mux.HandleFunc("/api/config/pmg-update/upload", func(w http.ResponseWriter, r *http.Request) {
+			s, ok := sessionFromContext(r)
+			if !ok {
+				http.Error(w, `{"error":"unauthorized"}`, http.StatusUnauthorized)
+				return
+			}
+			if s.Role != RoleAdmin {
+				http.Error(w, `{"error":"forbidden"}`, http.StatusForbidden)
+				return
+			}
+			if r.Method != http.MethodPost {
+				http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+				return
+			}
+			goos := r.URL.Query().Get("os")
+			arch := r.URL.Query().Get("arch")
+			validOS := map[string]bool{"linux": true, "darwin": true, "windows": true}
+			validArch := map[string]bool{"amd64": true, "arm64": true}
+			if !validOS[goos] || !validArch[arch] {
+				http.Error(w, "invalid os or arch", http.StatusBadRequest)
+				return
+			}
+			if err := r.ParseMultipartForm(64 << 20); err != nil {
+				http.Error(w, "file too large or invalid form", http.StatusBadRequest)
+				return
+			}
+			f, _, err := r.FormFile("file")
+			if err != nil {
+				http.Error(w, "missing file field", http.StatusBadRequest)
+				return
+			}
+			defer f.Close()
+			if mkErr := os.MkdirAll(updates.BinariesDir(), 0o755); mkErr != nil {
+				http.Error(w, "internal error", http.StatusInternalServerError)
+				return
+			}
+			dst := updates.BinaryPath(goos, arch)
+			tmp := dst + ".tmp"
+			outf, err := os.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o755)
+			if err != nil {
+				http.Error(w, "internal error", http.StatusInternalServerError)
+				return
+			}
+			h := sha256.New()
+			n, err := io.Copy(io.MultiWriter(outf, h), f)
+			outf.Close()
+			if err != nil {
+				os.Remove(tmp)
+				http.Error(w, "write failed", http.StatusInternalServerError)
+				return
+			}
+			if err := os.Rename(tmp, dst); err != nil {
+				os.Remove(tmp)
+				http.Error(w, "internal error", http.StatusInternalServerError)
+				return
+			}
+			sum := fmt.Sprintf("%x", h.Sum(nil))
+			if err := updates.StoreBinaryMeta(goos, arch, BinaryMeta{SHA256: sum, Size: n}); err != nil {
+				http.Error(w, "internal error", http.StatusInternalServerError)
+				return
+			}
+			if deps.Audit != nil {
+				deps.Audit.Log("pmg_binary_uploaded", goos+"/"+arch, fmt.Sprintf("sha256=%s size=%d", sum, n))
+			}
+			writeJSON(w, map[string]any{"sha256": sum, "size": n})
+		})
+
+		mux.HandleFunc("/api/config/pmg-update/publish", func(w http.ResponseWriter, r *http.Request) {
+			s, ok := sessionFromContext(r)
+			if !ok {
+				http.Error(w, `{"error":"unauthorized"}`, http.StatusUnauthorized)
+				return
+			}
+			if s.Role != RoleAdmin {
+				http.Error(w, `{"error":"forbidden"}`, http.StatusForbidden)
+				return
+			}
+			if r.Method != http.MethodPost {
+				http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+				return
+			}
+			var body struct {
+				Version string `json:"version"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Version == "" {
+				http.Error(w, "version required", http.StatusBadRequest)
+				return
+			}
+			if len(body.Version) > 64 {
+				http.Error(w, "version too long", http.StatusBadRequest)
+				return
+			}
+			if err := updates.SetTargetVersion(body.Version); err != nil {
+				http.Error(w, "internal error", http.StatusInternalServerError)
+				return
+			}
+			if deps.Audit != nil {
+				deps.Audit.Log("pmg_update_published", body.Version, "")
+			}
+			writeJSON(w, map[string]bool{"ok": true})
+		})
+
+		mux.HandleFunc("/download/", func(w http.ResponseWriter, r *http.Request) {
+			if r.Method != http.MethodGet {
+				http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+				return
+			}
+			if deps.Groups != nil {
+				apiKey := r.Header.Get("Authorization")
+				if apiKey == "" {
+					http.Error(w, `{"error":"unauthorized"}`, http.StatusUnauthorized)
+					return
+				}
+				if _, _, ok := deps.Groups.ResolveKeyWithID(apiKey); !ok {
+					http.Error(w, `{"error":"unauthorized"}`, http.StatusUnauthorized)
+					return
+				}
+			}
+			// filename: pmg-{os}-{arch} or pmg-{os}-{arch}.exe
+			filename := strings.TrimPrefix(r.URL.Path, "/download/")
+			filename = strings.TrimSuffix(filename, ".exe")
+			parts := strings.SplitN(strings.TrimPrefix(filename, "pmg-"), "-", 2)
+			if len(parts) != 2 {
+				http.NotFound(w, r)
+				return
+			}
+			binPath := updates.BinaryPath(parts[0], parts[1])
+			binFile, err := os.Open(binPath)
+			if os.IsNotExist(err) {
+				http.NotFound(w, r)
+				return
+			}
+			if err != nil {
+				http.Error(w, "internal error", http.StatusInternalServerError)
+				return
+			}
+			defer binFile.Close()
+			w.Header().Set("Content-Type", "application/octet-stream")
+			w.Header().Set("Content-Disposition", `attachment; filename="pmg"`)
+			http.ServeContent(w, r, "", time.Time{}, binFile)
+		})
+	}
+
 	// Enrollment APIs — always active when Enrollment is wired.
 	if deps.Enrollment != nil {
 		enrollment := deps.Enrollment
@@ -796,14 +964,14 @@ func Handler(dataDir string, deps HandlerDeps) http.Handler {
 			})
 		})
 
-		// POST /api/heartbeat — agent-authenticated; updates LastSeen without a full sync
+		// POST /api/heartbeat — agent-authenticated; updates LastSeen and returns update info
 		mux.HandleFunc("/api/heartbeat", func(w http.ResponseWriter, r *http.Request) {
 			if r.Method != http.MethodPost {
 				http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 				return
 			}
 			if deps.Groups == nil {
-				w.WriteHeader(http.StatusNoContent)
+				writeJSON(w, AgentUpdateInfo{})
 				return
 			}
 			apiKey := r.Header.Get("Authorization")
@@ -816,11 +984,23 @@ func Handler(dataDir string, deps HandlerDeps) http.Handler {
 				http.Error(w, `{"error":"unauthorized"}`, http.StatusUnauthorized)
 				return
 			}
-			if err := enrollment.TouchAgentByAPIKeyID(keyID); err != nil {
-				http.Error(w, "internal error", http.StatusInternalServerError)
-				return
+			if deps.Enrollment != nil {
+				if err := enrollment.TouchAgentByAPIKeyID(keyID); err != nil {
+					http.Error(w, "internal error", http.StatusInternalServerError)
+					return
+				}
 			}
-			w.WriteHeader(http.StatusNoContent)
+			var req struct {
+				Version string `json:"version"`
+				OS      string `json:"os"`
+				Arch    string `json:"arch"`
+			}
+			_ = json.NewDecoder(r.Body).Decode(&req)
+			var info AgentUpdateInfo
+			if deps.Updates != nil && req.OS != "" && req.Arch != "" {
+				info = deps.Updates.UpdateInfoForAgent(req.OS, req.Arch, req.Version)
+			}
+			writeJSON(w, info)
 		})
 
 		// GET /api/agents — admin only

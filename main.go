@@ -81,6 +81,12 @@ func main() {
 		os.Exit(1)
 	}
 
+	updateStore, err := dashboard.NewUpdateStore(*dataDir)
+	if err != nil {
+		slog.Error("failed to open update store", "err", err)
+		os.Exit(1)
+	}
+
 	cfgStore, err := dashboard.NewConfigStore(*dataDir)
 	if err != nil {
 		slog.Error("failed to open config store", "err", err)
@@ -204,6 +210,7 @@ func main() {
 			Users:        userStore,
 			Sessions:     sessionStore,
 			Enrollment:   enrollmentStore,
+			Updates:      updateStore,
 			GRPCAddr:     grpcAddrForClients,
 			GRPCInsecure: grpcInsecureForClients,
 		}
