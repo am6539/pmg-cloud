@@ -1447,8 +1447,10 @@ func Handler(dataDir string, deps HandlerDeps) http.Handler {
 func sessionMiddleware(h http.Handler, sessions *SessionStore) http.Handler {
 	// unauthenticated API routes — session is attached if present but never required
 	unauthAPI := map[string]bool{
-		"/api/me":     true,
-		"/api/enroll": true,
+		"/api/me":        true,
+		"/api/enroll":    true,
+		"/api/heartbeat": true, // agent API key auth, not session
+		"/api/sync":      true, // agent sync, not session
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Always pass: static files, auth endpoints, healthz, install.sh
