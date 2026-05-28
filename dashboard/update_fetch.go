@@ -118,6 +118,7 @@ func (us *UpdateStore) FetchFromGitHub(ctx context.Context, repo string) (FetchR
 			SHA256:     sum,
 			Size:       size,
 			UploadedAt: time.Now().UTC(),
+			Version:    rel.TagName,
 		}
 		_ = us.save()
 		us.mu.Unlock()

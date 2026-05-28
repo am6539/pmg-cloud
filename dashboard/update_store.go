@@ -19,6 +19,7 @@ type BinaryMeta struct {
 	SHA256     string    `json:"sha256"`
 	Size       int64     `json:"size"`
 	UploadedAt time.Time `json:"uploaded_at"`
+	Version    string    `json:"version,omitempty"` // GitHub release tag, if fetched
 }
 
 type UpdateConfig struct {
