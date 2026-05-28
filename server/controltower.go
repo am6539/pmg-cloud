@@ -27,10 +27,11 @@ import (
 type Server struct {
 	controltowerv1grpc.UnimplementedEndpointServiceServer
 
-	dataDir string
-	apiKeys map[string]struct{}        // static key set (backward compat); empty = no auth
-	groups  *dashboard.GroupStore      // group-based auth; takes precedence when it has keys
-	webhook *dashboard.WebhookDelivery // may be nil
+	dataDir    string
+	apiKeys    map[string]struct{}        // static key set (backward compat); empty = no auth
+	groups     *dashboard.GroupStore      // group-based auth; takes precedence when it has keys
+	enrollment *dashboard.EnrollmentStore // may be nil; updates Agent.LastSeen on sync
+	webhook    *dashboard.WebhookDelivery // may be nil
 
 	mu      sync.Mutex
 	logFile *os.File
@@ -103,27 +104,28 @@ type storedEvent struct {
 	Event json.RawMessage `json:"event"`
 }
 
-func New(dataDir string, apiKeys []string, groups *dashboard.GroupStore, webhook *dashboard.WebhookDelivery) (*Server, error) {
+func New(dataDir string, apiKeys []string, groups *dashboard.GroupStore, enrollment *dashboard.EnrollmentStore, webhook *dashboard.WebhookDelivery) (*Server, error) {
 	keys := make(map[string]struct{}, len(apiKeys))
 	for _, k := range apiKeys {
 		if k != "" {
 			keys[k] = struct{}{}
 		}
 	}
-	return &Server{dataDir: dataDir, apiKeys: keys, groups: groups, webhook: webhook}, nil
+	return &Server{dataDir: dataDir, apiKeys: keys, groups: groups, enrollment: enrollment, webhook: webhook}, nil
 }
 
 func (s *Server) SyncEvents(ctx context.Context, req *servicev1.SyncEventsRequest) (*servicev1.SyncEventsResponse, error) {
 	tenantID, apiKey := credentialsFromContext(ctx)
 
 	// Group-based auth takes precedence when the store has keys.
-	var groupID string
+	var groupID, apiKeyID string
 	if s.groups != nil && s.groups.HasKeys() {
-		gid, ok := s.groups.ResolveKey(apiKey)
+		gid, kid, ok := s.groups.ResolveKeyWithID(apiKey)
 		if !ok {
 			return nil, status.Error(codes.Unauthenticated, "invalid API key")
 		}
 		groupID = gid
+		apiKeyID = kid
 	} else if len(s.apiKeys) > 0 {
 		// Fall back to static key list (backward compat).
 		if _, ok := s.apiKeys[apiKey]; !ok {
@@ -150,6 +152,10 @@ func (s *Server) SyncEvents(ctx context.Context, req *servicev1.SyncEventsReques
 			continue
 		}
 		confirmedIDs = append(confirmedIDs, id)
+	}
+
+	if s.enrollment != nil && apiKeyID != "" {
+		_ = s.enrollment.TouchAgentByAPIKeyID(apiKeyID)
 	}
 
 	endpointID := ""
@@ -180,13 +186,14 @@ func (s *Server) ValidateAPIKey(key string) error {
 // SyncEventsHTTP is the auth-aware core for the HTTP /api/sync endpoint.
 // apiKey is extracted from Authorization: Bearer <key> by the caller.
 func (s *Server) SyncEventsHTTP(ctx context.Context, apiKey, remoteIP string, req *servicev1.SyncEventsRequest) (*servicev1.SyncEventsResponse, error) {
-	var groupID string
+	var groupID, apiKeyID string
 	if s.groups != nil && s.groups.HasKeys() {
-		gid, ok := s.groups.ResolveKey(apiKey)
+		gid, kid, ok := s.groups.ResolveKeyWithID(apiKey)
 		if !ok {
 			return nil, fmt.Errorf("invalid API key")
 		}
 		groupID = gid
+		apiKeyID = kid
 	} else if len(s.apiKeys) > 0 {
 		if _, ok := s.apiKeys[apiKey]; !ok {
 			return nil, fmt.Errorf("invalid API key")
@@ -202,6 +209,10 @@ func (s *Server) SyncEventsHTTP(ctx context.Context, apiKey, remoteIP string, re
 			continue
 		}
 		confirmedIDs = append(confirmedIDs, id)
+	}
+
+	if s.enrollment != nil && apiKeyID != "" {
+		_ = s.enrollment.TouchAgentByAPIKeyID(apiKeyID)
 	}
 
 	endpointID := ""

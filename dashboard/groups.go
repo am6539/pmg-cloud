@@ -204,16 +204,23 @@ func (gs *GroupStore) RevokeAPIKey(groupID, keyID string) error {
 // ResolveKey maps a plaintext API key to its group ID.
 // Returns ("", false) if the key is not found.
 func (gs *GroupStore) ResolveKey(plaintext string) (groupID string, ok bool) {
+	gid, _, found := gs.ResolveKeyWithID(plaintext)
+	return gid, found
+}
+
+// ResolveKeyWithID maps a plaintext API key to its group ID and key ID.
+// Returns ("", "", false) if the key is not found.
+func (gs *GroupStore) ResolveKeyWithID(plaintext string) (groupID, keyID string, ok bool) {
 	sum := sha256.Sum256([]byte(plaintext))
 	hash := hex.EncodeToString(sum[:])
 	gs.mu.RLock()
 	defer gs.mu.RUnlock()
 	for _, k := range gs.data.APIKeys {
 		if k.KeyHash == hash {
-			return k.GroupID, true
+			return k.GroupID, k.ID, true
 		}
 	}
-	return "", false
+	return "", "", false
 }
 
 // HasKeys reports whether any API keys exist in the store.

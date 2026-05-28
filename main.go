@@ -90,7 +90,7 @@ func main() {
 	auditLog := dashboard.NewAuditLog(*dataDir)
 	webhookDelivery := dashboard.NewWebhookDelivery(cfgStore)
 
-	svc, err := server.New(*dataDir, apiKeys, groups, webhookDelivery)
+	svc, err := server.New(*dataDir, apiKeys, groups, enrollmentStore, webhookDelivery)
 	if err != nil {
 		slog.Error("failed to create server", "err", err)
 		os.Exit(1)

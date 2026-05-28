@@ -588,7 +588,7 @@ function evNext(){S.evOffset+=50;loadPage();}
 var epList=[];
 function epOnline(last_seen){
   if(!last_seen)return false;
-  return(Date.now()-new Date(last_seen).getTime())<60*60*1000; // within 1 hour
+  return(Date.now()-new Date(last_seen).getTime())<24*60*60*1000; // within 24 hours
 }
 async function renderEndpoints(){
   epList=await api('/api/endpoints?'+buildQ());
@@ -897,7 +897,7 @@ async function renderAgents(){
 '<div class="tbl-wrap"><table><thead><tr><th>Hostname</th><th>OS / Arch</th><th>Group</th><th>Enrolled</th><th>Last Seen</th><th></th></tr></thead><tbody>'+
 (agents.length?agents.map(function(a){
   var grp=groups.find(function(g){return g.id===a.group_id;})||null;
-  var online=a.last_seen&&(Date.now()-new Date(a.last_seen).getTime()<2*3600*1000);
+  var online=a.last_seen&&(Date.now()-new Date(a.last_seen).getTime()<24*60*60*1000);
   var status=online?bdg('online','green'):bdg('offline','gray');
   return'<tr>'+
   '<td><strong>'+h(a.hostname)+'</strong> '+status+'</td>'+

@@ -204,6 +204,26 @@ func (es *EnrollmentStore) AssignAgentGroup(agentID, groupID string) error {
 	return fmt.Errorf("agent not found")
 }
 
+// TouchAgentByAPIKeyID updates the LastSeen timestamp of the agent whose
+// APIKeyID matches keyID. Called on every successful sync so the Agents tab
+// reflects live activity. Returns nil (not an error) if no agent matches,
+// since a touch miss is non-fatal.
+func (es *EnrollmentStore) TouchAgentByAPIKeyID(keyID string) error {
+	if keyID == "" {
+		return nil
+	}
+	es.mu.Lock()
+	defer es.mu.Unlock()
+	now := time.Now().UTC()
+	for i, a := range es.data.Agents {
+		if a.APIKeyID == keyID {
+			es.data.Agents[i].LastSeen = &now
+			return es.save()
+		}
+	}
+	return nil
+}
+
 // RemoveAgent deletes an agent record by ID.
 func (es *EnrollmentStore) RemoveAgent(id string) error {
 	es.mu.Lock()
