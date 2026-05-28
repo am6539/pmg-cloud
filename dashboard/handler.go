@@ -783,6 +783,32 @@ func Handler(dataDir string, deps HandlerDeps) http.Handler {
 			writeJSON(w, map[string]bool{"ok": true})
 		})
 
+		// POST /api/config/pmg-update/scan — scan binaries dir, register found files (admin)
+		mux.HandleFunc("/api/config/pmg-update/scan", func(w http.ResponseWriter, r *http.Request) {
+			s, ok := sessionFromContext(r)
+			if !ok {
+				http.Error(w, `{"error":"unauthorized"}`, http.StatusUnauthorized)
+				return
+			}
+			if s.Role != RoleAdmin {
+				http.Error(w, `{"error":"forbidden"}`, http.StatusForbidden)
+				return
+			}
+			if r.Method != http.MethodPost {
+				http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+				return
+			}
+			results, err := updates.ScanBinaries()
+			if err != nil {
+				http.Error(w, "scan failed: "+err.Error(), http.StatusInternalServerError)
+				return
+			}
+			if deps.Audit != nil {
+				deps.Audit.Log("pmg_binaries_scanned", fmt.Sprintf("%d found", len(results)), "")
+			}
+			writeJSON(w, map[string]any{"scanned": len(results), "results": results})
+		})
+
 		mux.HandleFunc("/download/", func(w http.ResponseWriter, r *http.Request) {
 			if r.Method != http.MethodGet {
 				http.Error(w, "method not allowed", http.StatusMethodNotAllowed)

@@ -1,10 +1,14 @@
 package dashboard
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 )
@@ -143,4 +147,92 @@ func (us *UpdateStore) UpdateInfoForAgent(goos, arch, currentVersion string) Age
 		DownloadURL:     downloadPath,
 		SHA256:          meta.SHA256,
 	}
+}
+
+// ScanResult is the result of scanning one binary file.
+type ScanResult struct {
+	Platform string `json:"platform"` // e.g. "linux/amd64"
+	SHA256   string `json:"sha256"`
+	Size     int64  `json:"size"`
+	New      bool   `json:"new"` // true if not previously registered
+}
+
+// ScanBinaries scans the binaries directory for pmg-{os}-{arch}[.exe] files,
+// computes their sha256, and registers any found files in the store.
+// Returns a summary of what was found.
+func (us *UpdateStore) ScanBinaries() ([]ScanResult, error) {
+	dir := us.BinariesDir()
+	entries, err := os.ReadDir(dir)
+	if os.IsNotExist(err) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("read binaries dir: %w", err)
+	}
+
+	var results []ScanResult
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+		name := e.Name()
+		// Accept pmg-{os}-{arch} and pmg-{os}-{arch}.exe
+		isExe := strings.HasSuffix(name, ".exe")
+		base := strings.TrimSuffix(name, ".exe")
+		if !strings.HasPrefix(base, "pmg-") {
+			continue
+		}
+		rest := strings.TrimPrefix(base, "pmg-")
+		// rest must be "{os}-{arch}"
+		idx := strings.Index(rest, "-")
+		if idx < 1 || idx == len(rest)-1 {
+			continue
+		}
+		goos := rest[:idx]
+		arch := rest[idx+1:]
+		if isExe && goos != "windows" {
+			continue
+		}
+
+		path := filepath.Join(dir, name)
+		sum, size, err := hashFile(path)
+		if err != nil {
+			continue
+		}
+
+		us.mu.Lock()
+		existing, alreadyHave := us.cfg.Binaries[goos+"/"+arch]
+		isNew := !alreadyHave || existing.SHA256 != sum
+		if isNew {
+			us.cfg.Binaries[goos+"/"+arch] = BinaryMeta{
+				SHA256:     sum,
+				Size:       size,
+				UploadedAt: time.Now().UTC(),
+			}
+			_ = us.save()
+		}
+		us.mu.Unlock()
+
+		results = append(results, ScanResult{
+			Platform: goos + "/" + arch,
+			SHA256:   sum,
+			Size:     size,
+			New:      isNew,
+		})
+	}
+	return results, nil
+}
+
+func hashFile(path string) (hexSum string, size int64, err error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return "", 0, err
+	}
+	defer f.Close()
+	h := sha256.New()
+	size, err = io.Copy(h, f)
+	if err != nil {
+		return "", 0, err
+	}
+	return hex.EncodeToString(h.Sum(nil)), size, nil
 }
