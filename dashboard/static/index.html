@@ -1415,10 +1415,10 @@ async function fetchPmgFromGitHub(btn){
     var d=await r.json();
     var n=(d.results||[]).length;
     showToast('Fetched '+d.version+': '+n+' platform'+(n!==1?'s':''),'success');
-    // auto-fill version input so admin just needs to click Publish
+    await renderSettings();
+    // set after re-render so renderSettings() doesn't overwrite it
     var inp=document.getElementById('pmg-target-ver');
     if(inp&&d.version)inp.value=d.version;
-    await renderSettings();
   }catch(e){showToast('Fetch failed: '+e.message,'error');btn.disabled=false;btn.textContent='↓ GitHub';}
 }
 
