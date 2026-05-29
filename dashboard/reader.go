@@ -500,12 +500,23 @@ func EndpointList(events []Event) []EndpointInfo {
 }
 
 // MergeAgentEndpoints adds enrolled agents that have no matching event-sourced endpoint.
-// Correlation is by hostname (case-insensitive). Agents already represented in the
-// event list are skipped; new agents get LastSeen = EnrolledAt and Sessions = 0.
+// Correlation is by hostname (case-insensitive). For endpoints that DO match an enrolled
+// agent, the agent's PMGVersion overlays the event-sourced ToolVersion: the agent record
+// is kept fresh by heartbeat, so it reflects self-updates that have not yet produced a new
+// install event. New agents get LastSeen = EnrolledAt and Sessions = 0.
 func MergeAgentEndpoints(endpoints []EndpointInfo, agents []Agent) []EndpointInfo {
+	agentByHost := make(map[string]Agent, len(agents))
+	for _, a := range agents {
+		agentByHost[strings.ToLower(a.Hostname)] = a
+	}
+
 	seen := make(map[string]struct{}, len(endpoints))
-	for _, ep := range endpoints {
-		seen[strings.ToLower(ep.Hostname)] = struct{}{}
+	for i := range endpoints {
+		host := strings.ToLower(endpoints[i].Hostname)
+		seen[host] = struct{}{}
+		if a, ok := agentByHost[host]; ok && a.PMGVersion != "" {
+			endpoints[i].ToolVersion = a.PMGVersion
+		}
 	}
 	for _, a := range agents {
 		if _, ok := seen[strings.ToLower(a.Hostname)]; ok {
