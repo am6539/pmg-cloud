@@ -1046,18 +1046,18 @@ func Handler(dataDir string, deps HandlerDeps) http.Handler {
 				http.Error(w, `{"error":"unauthorized"}`, http.StatusUnauthorized)
 				return
 			}
-			if deps.Enrollment != nil {
-				if err := enrollment.TouchAgentByAPIKeyID(keyID); err != nil {
-					http.Error(w, "internal error", http.StatusInternalServerError)
-					return
-				}
-			}
 			var req struct {
 				Version string `json:"version"`
 				OS      string `json:"os"`
 				Arch    string `json:"arch"`
 			}
 			_ = json.NewDecoder(r.Body).Decode(&req)
+			if deps.Enrollment != nil {
+				if err := enrollment.TouchAgentByAPIKeyID(keyID, req.Version); err != nil {
+					http.Error(w, "internal error", http.StatusInternalServerError)
+					return
+				}
+			}
 			var info AgentUpdateInfo
 			if deps.Updates != nil && req.OS != "" && req.Arch != "" {
 				info = deps.Updates.UpdateInfoForAgent(req.OS, req.Arch, req.Version)

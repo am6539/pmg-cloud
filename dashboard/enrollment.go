@@ -204,11 +204,12 @@ func (es *EnrollmentStore) AssignAgentGroup(agentID, groupID string) error {
 	return fmt.Errorf("agent not found")
 }
 
-// TouchAgentByAPIKeyID updates the LastSeen timestamp of the agent whose
-// APIKeyID matches keyID. Called on every successful sync so the Agents tab
-// reflects live activity. Returns nil (not an error) if no agent matches,
-// since a touch miss is non-fatal.
-func (es *EnrollmentStore) TouchAgentByAPIKeyID(keyID string) error {
+// TouchAgentByAPIKeyID updates the LastSeen timestamp (and PMGVersion when a
+// non-empty version is supplied) of the agent whose APIKeyID matches keyID.
+// Called on every successful sync and heartbeat so the Agents tab reflects
+// live activity and the currently-running PMG version. Returns nil (not an
+// error) if no agent matches, since a touch miss is non-fatal.
+func (es *EnrollmentStore) TouchAgentByAPIKeyID(keyID, version string) error {
 	if keyID == "" {
 		return nil
 	}
@@ -218,6 +219,9 @@ func (es *EnrollmentStore) TouchAgentByAPIKeyID(keyID string) error {
 	for i, a := range es.data.Agents {
 		if a.APIKeyID == keyID {
 			es.data.Agents[i].LastSeen = &now
+			if version != "" {
+				es.data.Agents[i].PMGVersion = version
+			}
 			return es.save()
 		}
 	}
