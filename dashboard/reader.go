@@ -514,8 +514,18 @@ func MergeAgentEndpoints(endpoints []EndpointInfo, agents []Agent) []EndpointInf
 	for i := range endpoints {
 		host := strings.ToLower(endpoints[i].Hostname)
 		seen[host] = struct{}{}
-		if a, ok := agentByHost[host]; ok && a.PMGVersion != "" {
+		a, ok := agentByHost[host]
+		if !ok {
+			continue
+		}
+		if a.PMGVersion != "" {
 			endpoints[i].ToolVersion = a.PMGVersion
+		}
+		// Heartbeat keeps Agent.LastSeen fresh even without a new install event,
+		// so use it when newer to keep the Endpoints online/offline status in sync
+		// with the Agents tab.
+		if a.LastSeen != nil && a.LastSeen.After(endpoints[i].LastSeen) {
+			endpoints[i].LastSeen = *a.LastSeen
 		}
 	}
 	for _, a := range agents {
