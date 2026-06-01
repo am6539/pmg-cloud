@@ -99,6 +99,9 @@ func main() {
 		os.Exit(1)
 	}
 
+	missingMonitor := dashboard.NewMissingAgentMonitor(enrollmentStore, cfgStore)
+	go missingMonitor.Run(make(chan struct{})) // lives for process lifetime
+
 	auditLog := dashboard.NewAuditLog(*dataDir)
 	webhookDelivery := dashboard.NewWebhookDelivery(cfgStore)
 
