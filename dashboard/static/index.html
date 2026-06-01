@@ -1322,6 +1322,8 @@ async function renderSettings(){
   if(S.me&&S.me.role==='admin'){
     var updateHtml=await renderPmgUpdateSection();
     document.getElementById('content').innerHTML+=updateHtml;
+    var policyHtml=await renderOrgPolicySection();
+    document.getElementById('content').innerHTML+=policyHtml;
   }
 }
 
@@ -1424,6 +1426,56 @@ async function fetchPmgFromGitHub(btn){
     S.pendingUpdateVersion=d.version||null;
     await renderSettings();
   }catch(e){showToast('Fetch failed: '+e.message,'error');btn.disabled=false;btn.textContent='↓ GitHub';}
+}
+
+/* ---- ORG POLICY ---- */
+async function renderOrgPolicySection(){
+  var pol={blocklist:[],allowlist:[]};
+  try{pol=await api('/api/config/policy');}catch(e){}
+  function rows(list,kind){
+    if(!list||!list.length)return'<tr><td colspan="4" class="empty">None</td></tr>';
+    return list.map(function(r){
+      return'<tr><td>'+ecoBdg(r.ecosystem||'any')+'</td><td><strong>'+h(r.name)+'</strong></td>'+
+      '<td class="mono">'+h(r.version||'*')+'</td>'+
+      '<td><button class="btn btn-sm btn-danger" onclick="removePolicyRule(\''+kind+'\',\''+h(r.id)+'\')">Remove</button></td></tr>';
+    }).join('');
+  }
+  return'<div class="card" style="margin-top:20px">'+
+  '<div class="card-title">&#128737; Organization Package Policy</div>'+
+  '<p style="font-size:13px;color:var(--tx3);margin-bottom:14px">Block or allow packages org-wide. Enrolled agents apply this on their next heartbeat — no re-install needed. Allow overrides block.</p>'+
+  '<div class="two-col">'+
+  '<div><div class="sec-title">Blocklist</div><div class="tbl-wrap"><table><thead><tr><th>Eco</th><th>Package</th><th>Version</th><th></th></tr></thead><tbody>'+rows(pol.blocklist,'block')+'</tbody></table></div></div>'+
+  '<div><div class="sec-title">Allowlist</div><div class="tbl-wrap"><table><thead><tr><th>Eco</th><th>Package</th><th>Version</th><th></th></tr></thead><tbody>'+rows(pol.allowlist,'allow')+'</tbody></table></div></div>'+
+  '</div>'+
+  '<div class="flex" style="gap:8px;margin-top:12px;flex-wrap:wrap">'+
+    '<select class="input" id="pol-list" style="width:110px"><option value="block">Block</option><option value="allow">Allow</option></select>'+
+    '<select class="input" id="pol-eco" style="width:110px"><option value="">any</option><option value="npm">npm</option><option value="pypi">pypi</option></select>'+
+    '<input class="input" id="pol-name" placeholder="package name" style="flex:1;min-width:160px">'+
+    '<input class="input" id="pol-ver" placeholder="version or *" style="width:130px" value="*">'+
+    '<button class="btn btn-primary" onclick="addPolicyRule()">&#43; Add Rule</button>'+
+  '</div></div>';
+}
+
+async function addPolicyRule(){
+  var list=(document.getElementById('pol-list')||{}).value||'block';
+  var rule={ecosystem:(document.getElementById('pol-eco')||{}).value||'',name:(document.getElementById('pol-name')||{}).value||'',version:(document.getElementById('pol-ver')||{}).value||'*'};
+  if(!rule.name)return showToast('Package name required','error');
+  try{
+    var r=await fetch('/api/config/policy',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({list:list,rule:rule})});
+    if(!r.ok)throw new Error(await r.text());
+    showToast('Policy rule added','success');
+    await renderSettings();
+  }catch(e){showToast(e.message,'error');}
+}
+
+async function removePolicyRule(list,id){
+  if(!confirm('Remove this policy rule?'))return;
+  try{
+    var r=await fetch('/api/config/policy/'+list+'/'+id,{method:'DELETE'});
+    if(!r.ok)throw new Error(await r.text());
+    showToast('Rule removed','success');
+    await renderSettings();
+  }catch(e){showToast(e.message,'error');}
 }
 
 async function saveRetention(){
