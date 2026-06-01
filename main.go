@@ -87,6 +87,12 @@ func main() {
 		os.Exit(1)
 	}
 
+	policyStore, err := dashboard.NewPolicyStore(*dataDir)
+	if err != nil {
+		slog.Error("failed to open policy store", "err", err)
+		os.Exit(1)
+	}
+
 	cfgStore, err := dashboard.NewConfigStore(*dataDir)
 	if err != nil {
 		slog.Error("failed to open config store", "err", err)
@@ -211,6 +217,7 @@ func main() {
 			Sessions:     sessionStore,
 			Enrollment:   enrollmentStore,
 			Updates:      updateStore,
+			Policy:       policyStore,
 			GRPCAddr:     grpcAddrForClients,
 			GRPCInsecure: grpcInsecureForClients,
 		}

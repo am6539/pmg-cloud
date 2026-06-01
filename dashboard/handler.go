@@ -40,6 +40,7 @@ type HandlerDeps struct {
 	Sessions     *SessionStore    // required when Users is set
 	Enrollment   *EnrollmentStore // may be nil; enables agent enrollment
 	Updates      *UpdateStore     // may be nil; enables PMG agent update management
+	Policy       *PolicyStore     // may be nil; enables org-wide package policy
 	GRPCAddr     string           // gRPC endpoint reported to enrolling agents
 	GRPCInsecure bool             // when true, enrolling agents skip TLS verification for gRPC
 }
@@ -886,6 +887,76 @@ func Handler(dataDir string, deps HandlerDeps) http.Handler {
 		})
 	}
 
+	// PMG org policy APIs — admin only.
+	if deps.Policy != nil {
+		policy := deps.Policy
+
+		mux.HandleFunc("/api/config/policy", func(w http.ResponseWriter, r *http.Request) {
+			s, ok := sessionFromContext(r)
+			if !ok {
+				http.Error(w, `{"error":"unauthorized"}`, http.StatusUnauthorized)
+				return
+			}
+			if s.Role != RoleAdmin {
+				http.Error(w, `{"error":"forbidden"}`, http.StatusForbidden)
+				return
+			}
+			switch r.Method {
+			case http.MethodGet:
+				writeJSON(w, policy.Get())
+			case http.MethodPost:
+				var body struct {
+					List string     `json:"list"`
+					Rule PolicyRule `json:"rule"`
+				}
+				if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+					http.Error(w, "invalid JSON", http.StatusBadRequest)
+					return
+				}
+				if err := policy.AddRule(body.List, body.Rule); err != nil {
+					http.Error(w, err.Error(), http.StatusBadRequest)
+					return
+				}
+				if deps.Audit != nil {
+					deps.Audit.Log("policy_rule_added", body.Rule.Name, fmt.Sprintf("list=%s eco=%s ver=%s", body.List, body.Rule.Ecosystem, body.Rule.Version))
+				}
+				writeJSON(w, policy.Get())
+			default:
+				http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			}
+		})
+
+		// DELETE /api/config/policy/{list}/{id}
+		mux.HandleFunc("/api/config/policy/", func(w http.ResponseWriter, r *http.Request) {
+			s, ok := sessionFromContext(r)
+			if !ok {
+				http.Error(w, `{"error":"unauthorized"}`, http.StatusUnauthorized)
+				return
+			}
+			if s.Role != RoleAdmin {
+				http.Error(w, `{"error":"forbidden"}`, http.StatusForbidden)
+				return
+			}
+			if r.Method != http.MethodDelete {
+				http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+				return
+			}
+			parts := strings.SplitN(strings.TrimPrefix(r.URL.Path, "/api/config/policy/"), "/", 2)
+			if len(parts) != 2 || parts[1] == "" {
+				http.NotFound(w, r)
+				return
+			}
+			if err := policy.RemoveRule(parts[0], parts[1]); err != nil {
+				http.Error(w, err.Error(), http.StatusNotFound)
+				return
+			}
+			if deps.Audit != nil {
+				deps.Audit.Log("policy_rule_removed", parts[1], "list="+parts[0])
+			}
+			w.WriteHeader(http.StatusNoContent)
+		})
+	}
+
 	// Enrollment APIs — always active when Enrollment is wired.
 	if deps.Enrollment != nil {
 		enrollment := deps.Enrollment
@@ -1062,7 +1133,16 @@ func Handler(dataDir string, deps HandlerDeps) http.Handler {
 			if deps.Updates != nil && req.OS != "" && req.Arch != "" {
 				info = deps.Updates.UpdateInfoForAgent(req.OS, req.Arch, req.Version)
 			}
-			writeJSON(w, info)
+			resp := map[string]any{
+				"update_available": info.UpdateAvailable,
+				"version":          info.Version,
+				"download_url":     info.DownloadURL,
+				"sha256":           info.SHA256,
+			}
+			if deps.Policy != nil {
+				resp["policy"] = deps.Policy.Get()
+			}
+			writeJSON(w, resp)
 		})
 
 		// GET /api/agents — admin only
