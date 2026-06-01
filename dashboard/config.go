@@ -138,6 +138,67 @@ func validateWebhookURL(rawURL string) error {
 	return nil
 }
 
+// validateAlertChannel checks required fields per channel kind.
+func validateAlertChannel(ch AlertChannel) error {
+	switch ch.Kind {
+	case "telegram":
+		if ch.Token == "" || ch.ChatID == "" {
+			return fmt.Errorf("telegram channel requires token and chat_id")
+		}
+	case "slack":
+		if err := validateWebhookURL(ch.WebhookURL); err != nil {
+			return fmt.Errorf("slack webhook_url invalid: %w", err)
+		}
+	default:
+		return fmt.Errorf("kind must be 'telegram' or 'slack'")
+	}
+	return nil
+}
+
+// AddAlertChannel appends a new alert channel (assigning a generated ID) and persists.
+func (cs *ConfigStore) AddAlertChannel(ch AlertChannel) (AlertChannel, error) {
+	if err := validateAlertChannel(ch); err != nil {
+		return AlertChannel{}, err
+	}
+	cs.mu.Lock()
+	defer cs.mu.Unlock()
+	ch.ID = genID()
+	cs.data.AlertChannels = append(cs.data.AlertChannels, ch)
+	return ch, cs.save()
+}
+
+// DeleteAlertChannel removes an alert channel by ID and persists.
+func (cs *ConfigStore) DeleteAlertChannel(id string) error {
+	cs.mu.Lock()
+	defer cs.mu.Unlock()
+	channels := make([]AlertChannel, 0, len(cs.data.AlertChannels))
+	found := false
+	for _, c := range cs.data.AlertChannels {
+		if c.ID == id {
+			found = true
+			continue
+		}
+		channels = append(channels, c)
+	}
+	if !found {
+		return fmt.Errorf("alert channel not found")
+	}
+	cs.data.AlertChannels = channels
+	return cs.save()
+}
+
+// GetAlertChannel returns a channel by ID (ok=false if not found).
+func (cs *ConfigStore) GetAlertChannel(id string) (AlertChannel, bool) {
+	cs.mu.RLock()
+	defer cs.mu.RUnlock()
+	for _, c := range cs.data.AlertChannels {
+		if c.ID == id {
+			return c, true
+		}
+	}
+	return AlertChannel{}, false
+}
+
 // AddWebhook appends a new webhook entry (assigning a generated ID) and persists.
 func (cs *ConfigStore) AddWebhook(wh WebhookEntry) (WebhookEntry, error) {
 	if err := validateWebhookURL(wh.URL); err != nil {

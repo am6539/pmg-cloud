@@ -1482,19 +1482,88 @@ async function removePolicyRule(list,id){
 
 /* ---- ALERT CHANNELS ---- */
 async function renderAlertChannelsSection(){
-  var cfg={alert_channels:[]};
-  try{cfg=await api('/api/config');}catch(e){}
-  var chans=cfg.alert_channels||[];
+  var chans=[];
+  try{chans=await api('/api/config/alert-channels');}catch(e){}
+  chans=chans||[];
   var rows=chans.length?chans.map(function(c){
+    var trig=[];if(c.on_malware)trig.push('malware');if(c.on_missing)trig.push('missing');
     return'<tr><td>'+bdg(c.kind,c.kind==='telegram'?'blue':'teal')+'</td><td>'+h(c.name||'')+'</td>'+
-    '<td>'+(c.on_malware?'malware ':'')+(c.on_missing?'missing':'')+'</td>'+
-    '<td>'+(c.enabled?bdg('on','green'):bdg('off','gray'))+'</td></tr>';
-  }).join(''):'<tr><td colspan="4" class="empty">No channels configured</td></tr>';
+    '<td>'+(trig.length?h(trig.join(', ')):'<span style="color:var(--tx4)">—</span>')+'</td>'+
+    '<td>'+(c.enabled?bdg('on','green'):bdg('off','gray'))+'</td>'+
+    '<td class="flex" style="gap:4px">'+
+      '<button class="btn btn-sm btn-ghost" onclick="testAlertChannel(\''+h(c.id)+'\')">Test</button>'+
+      '<button class="btn btn-sm btn-danger" onclick="removeAlertChannel(\''+h(c.id)+'\')">Remove</button>'+
+    '</td></tr>';
+  }).join(''):'<tr><td colspan="5" class="empty">No channels configured</td></tr>';
   return'<div class="card" style="margin-top:20px">'+
   '<div class="card-title">&#128226; Alert Channels</div>'+
-  '<p style="font-size:13px;color:var(--tx3);margin-bottom:14px">Telegram/Slack alerts on malware detections and missing agents. Configure via the config object (POST /api/config). Telegram needs bot token + chat_id; Slack needs an incoming webhook URL.</p>'+
-  '<div class="tbl-wrap"><table><thead><tr><th>Kind</th><th>Name</th><th>Triggers</th><th>Status</th></tr></thead><tbody>'+rows+'</tbody></table></div>'+
-  '</div>';
+  '<p style="font-size:13px;color:var(--tx3);margin-bottom:14px">Send Telegram or Slack alerts on malware detections and missing agents.</p>'+
+  '<div class="tbl-wrap"><table><thead><tr><th>Kind</th><th>Name</th><th>Triggers</th><th>Status</th><th></th></tr></thead><tbody>'+rows+'</tbody></table></div>'+
+  '<div style="margin-top:14px">'+
+    '<div class="flex" style="gap:8px;flex-wrap:wrap;margin-bottom:10px">'+
+      '<select class="input" id="ac-kind" style="width:120px" onchange="toggleAlertFields()"><option value="telegram">Telegram</option><option value="slack">Slack</option></select>'+
+      '<input class="input" id="ac-name" placeholder="name (e.g. Security team)" style="flex:1;min-width:160px">'+
+    '</div>'+
+    '<div class="flex" id="ac-telegram-fields" style="gap:8px;flex-wrap:wrap;margin-bottom:10px">'+
+      '<input class="input" id="ac-token" placeholder="bot token" style="flex:1;min-width:200px">'+
+      '<input class="input" id="ac-chatid" placeholder="chat id" style="width:160px">'+
+    '</div>'+
+    '<div class="flex" id="ac-slack-fields" style="gap:8px;flex-wrap:wrap;margin-bottom:10px;display:none">'+
+      '<input class="input" id="ac-webhook" placeholder="Slack incoming webhook URL" style="flex:1;min-width:240px">'+
+    '</div>'+
+    '<div class="flex" style="gap:16px;flex-wrap:wrap;margin-bottom:10px;font-size:13px">'+
+      '<label class="flex" style="gap:6px"><input type="checkbox" id="ac-malware" checked> on malware</label>'+
+      '<label class="flex" style="gap:6px"><input type="checkbox" id="ac-missing" checked> on missing agent</label>'+
+      '<label class="flex" style="gap:6px"><input type="checkbox" id="ac-enabled" checked> enabled</label>'+
+      '<button class="btn btn-primary btn-sm" style="margin-left:auto" onclick="addAlertChannel()">&#43; Add Channel</button>'+
+    '</div>'+
+  '</div></div>';
+}
+
+function toggleAlertFields(){
+  var kind=(document.getElementById('ac-kind')||{}).value||'telegram';
+  var tg=document.getElementById('ac-telegram-fields');var sl=document.getElementById('ac-slack-fields');
+  if(tg)tg.style.display=kind==='telegram'?'flex':'none';
+  if(sl)sl.style.display=kind==='slack'?'flex':'none';
+}
+
+async function addAlertChannel(){
+  var kind=(document.getElementById('ac-kind')||{}).value||'telegram';
+  var ch={
+    kind:kind,
+    name:(document.getElementById('ac-name')||{}).value||'',
+    token:(document.getElementById('ac-token')||{}).value||'',
+    chat_id:(document.getElementById('ac-chatid')||{}).value||'',
+    webhook_url:(document.getElementById('ac-webhook')||{}).value||'',
+    on_malware:(document.getElementById('ac-malware')||{}).checked||false,
+    on_missing:(document.getElementById('ac-missing')||{}).checked||false,
+    enabled:(document.getElementById('ac-enabled')||{}).checked||false
+  };
+  try{
+    var r=await fetch('/api/config/alert-channels',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(ch)});
+    if(!r.ok)throw new Error(await r.text());
+    showToast('Alert channel added','success');
+    await renderSettings();
+  }catch(e){showToast(e.message,'error');}
+}
+
+async function removeAlertChannel(id){
+  if(!confirm('Remove this alert channel?'))return;
+  try{
+    var r=await fetch('/api/config/alert-channels/'+id,{method:'DELETE'});
+    if(!r.ok)throw new Error(await r.text());
+    showToast('Channel removed','success');
+    await renderSettings();
+  }catch(e){showToast(e.message,'error');}
+}
+
+async function testAlertChannel(id){
+  showToast('Sending test alert…','info');
+  try{
+    var r=await fetch('/api/config/alert-channels/'+id+'/test',{method:'POST'});
+    if(!r.ok)throw new Error(await r.text());
+    showToast('Test alert sent — check your channel','success');
+  }catch(e){showToast('Test failed: '+e.message,'error');}
 }
 
 async function saveRetention(){

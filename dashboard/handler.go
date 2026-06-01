@@ -467,6 +467,86 @@ func Handler(dataDir string, deps HandlerDeps) http.Handler {
 				http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			}
 		})
+
+		// Alert channel management (admin only — channels hold secret tokens).
+		mux.HandleFunc("/api/config/alert-channels", func(w http.ResponseWriter, r *http.Request) {
+			s, ok := sessionFromContext(r)
+			if !ok {
+				http.Error(w, `{"error":"unauthorized"}`, http.StatusUnauthorized)
+				return
+			}
+			if s.Role != RoleAdmin {
+				http.Error(w, `{"error":"forbidden"}`, http.StatusForbidden)
+				return
+			}
+			switch r.Method {
+			case http.MethodGet:
+				writeJSON(w, deps.Config.Get().AlertChannels)
+			case http.MethodPost:
+				var ch AlertChannel
+				if err := json.NewDecoder(r.Body).Decode(&ch); err != nil {
+					http.Error(w, "invalid JSON", http.StatusBadRequest)
+					return
+				}
+				created, err := deps.Config.AddAlertChannel(ch)
+				if err != nil {
+					http.Error(w, err.Error(), http.StatusBadRequest)
+					return
+				}
+				if deps.Audit != nil {
+					deps.Audit.Log("alert_channel_added", created.ID, created.Kind+" "+created.Name)
+				}
+				w.WriteHeader(http.StatusCreated)
+				writeJSON(w, created)
+			default:
+				http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			}
+		})
+
+		// DELETE /api/config/alert-channels/{id}  |  POST .../{id}/test
+		mux.HandleFunc("/api/config/alert-channels/", func(w http.ResponseWriter, r *http.Request) {
+			s, ok := sessionFromContext(r)
+			if !ok {
+				http.Error(w, `{"error":"unauthorized"}`, http.StatusUnauthorized)
+				return
+			}
+			if s.Role != RoleAdmin {
+				http.Error(w, `{"error":"forbidden"}`, http.StatusForbidden)
+				return
+			}
+			tail := strings.TrimPrefix(r.URL.Path, "/api/config/alert-channels/")
+			if tail == "" {
+				http.NotFound(w, r)
+				return
+			}
+			// POST /api/config/alert-channels/{id}/test — send a test alert
+			if strings.HasSuffix(tail, "/test") && r.Method == http.MethodPost {
+				id := strings.TrimSuffix(tail, "/test")
+				ch, found := deps.Config.GetAlertChannel(id)
+				if !found {
+					http.Error(w, `{"error":"channel not found"}`, http.StatusNotFound)
+					return
+				}
+				if err := sendAlert(ch, "✅ PMG test alert — this channel is configured correctly"); err != nil {
+					http.Error(w, "test failed: "+err.Error(), http.StatusBadGateway)
+					return
+				}
+				writeJSON(w, map[string]bool{"ok": true})
+				return
+			}
+			if r.Method != http.MethodDelete {
+				http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+				return
+			}
+			if err := deps.Config.DeleteAlertChannel(tail); err != nil {
+				http.Error(w, err.Error(), http.StatusNotFound)
+				return
+			}
+			if deps.Audit != nil {
+				deps.Audit.Log("alert_channel_deleted", tail, "")
+			}
+			w.WriteHeader(http.StatusNoContent)
+		})
 	}
 
 	// Audit log API — only when Audit is wired.
