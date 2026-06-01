@@ -29,11 +29,25 @@ type WebhookEntry struct {
 	Enabled   bool   `json:"enabled"`
 }
 
+// AlertChannel is a notification destination (Telegram or Slack).
+type AlertChannel struct {
+	ID         string `json:"id"`
+	Kind       string `json:"kind"` // "telegram" or "slack"
+	Name       string `json:"name"`
+	Token      string `json:"token,omitempty"`       // telegram bot token
+	ChatID     string `json:"chat_id,omitempty"`     // telegram chat id
+	WebhookURL string `json:"webhook_url,omitempty"` // slack incoming webhook
+	OnMalware  bool   `json:"on_malware"`
+	OnMissing  bool   `json:"on_missing"`
+	Enabled    bool   `json:"enabled"`
+}
+
 // ServerConfig is the full server configuration persisted to config.json.
 type ServerConfig struct {
 	RetentionDays int            `json:"retention_days"`
 	Alert         AlertConfig    `json:"alert"`
 	Webhooks      []WebhookEntry `json:"webhooks"`
+	AlertChannels []AlertChannel `json:"alert_channels"`
 }
 
 // ConfigStore manages server configuration in a thread-safe way.
