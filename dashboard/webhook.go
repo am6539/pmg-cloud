@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"time"
@@ -67,8 +68,8 @@ func (wd *WebhookDelivery) worker(ctx context.Context) {
 }
 
 func (wd *WebhookDelivery) deliver(p WebhookPayload) {
-	hooks := wd.cfg.Get().Webhooks
-	for _, h := range hooks {
+	cfg := wd.cfg.Get()
+	for _, h := range cfg.Webhooks {
 		if !h.Enabled {
 			continue
 		}
@@ -79,6 +80,22 @@ func (wd *WebhookDelivery) deliver(p WebhookPayload) {
 			continue
 		}
 		wd.post(h.URL, p)
+	}
+
+	// Fan out malware/blocked events to Telegram/Slack alert channels.
+	if p.Event == "malware_detected" || p.Event == "package_blocked" {
+		msg := fmt.Sprintf("🛡️ PMG alert: %s — %s %s on %s",
+			p.Event, p.Package, p.Ecosystem, p.EndpointID)
+		for _, ch := range cfg.AlertChannels {
+			if !ch.Enabled || !ch.OnMalware {
+				continue
+			}
+			go func(c AlertChannel, text string) {
+				if err := sendAlert(c, text); err != nil {
+					slog.Warn("alert channel send failed", "kind", c.Kind, "err", err)
+				}
+			}(ch, msg)
+		}
 	}
 }
 
