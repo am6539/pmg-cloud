@@ -1324,6 +1324,8 @@ async function renderSettings(){
     document.getElementById('content').innerHTML+=updateHtml;
     var policyHtml=await renderOrgPolicySection();
     document.getElementById('content').innerHTML+=policyHtml;
+    var alertHtml=await renderAlertChannelsSection();
+    document.getElementById('content').innerHTML+=alertHtml;
   }
 }
 
@@ -1476,6 +1478,23 @@ async function removePolicyRule(list,id){
     showToast('Rule removed','success');
     await renderSettings();
   }catch(e){showToast(e.message,'error');}
+}
+
+/* ---- ALERT CHANNELS ---- */
+async function renderAlertChannelsSection(){
+  var cfg={alert_channels:[]};
+  try{cfg=await api('/api/config');}catch(e){}
+  var chans=cfg.alert_channels||[];
+  var rows=chans.length?chans.map(function(c){
+    return'<tr><td>'+bdg(c.kind,c.kind==='telegram'?'blue':'teal')+'</td><td>'+h(c.name||'')+'</td>'+
+    '<td>'+(c.on_malware?'malware ':'')+(c.on_missing?'missing':'')+'</td>'+
+    '<td>'+(c.enabled?bdg('on','green'):bdg('off','gray'))+'</td></tr>';
+  }).join(''):'<tr><td colspan="4" class="empty">No channels configured</td></tr>';
+  return'<div class="card" style="margin-top:20px">'+
+  '<div class="card-title">&#128226; Alert Channels</div>'+
+  '<p style="font-size:13px;color:var(--tx3);margin-bottom:14px">Telegram/Slack alerts on malware detections and missing agents. Configure via the config object (POST /api/config). Telegram needs bot token + chat_id; Slack needs an incoming webhook URL.</p>'+
+  '<div class="tbl-wrap"><table><thead><tr><th>Kind</th><th>Name</th><th>Triggers</th><th>Status</th></tr></thead><tbody>'+rows+'</tbody></table></div>'+
+  '</div>';
 }
 
 async function saveRetention(){
