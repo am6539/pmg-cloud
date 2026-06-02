@@ -1262,23 +1262,45 @@ func Handler(dataDir string, deps HandlerDeps) http.Handler {
 			switch r.Method {
 			case http.MethodPut:
 				var body struct {
-					GroupID     string `json:"group_id"`
-					RemoveGroup bool   `json:"remove_group"`
+					GroupID     *string `json:"group_id"`
+					RemoveGroup bool    `json:"remove_group"`
+					Label       *string `json:"label"`
 				}
 				if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 					http.Error(w, "invalid JSON", http.StatusBadRequest)
 					return
 				}
-				newGroup := body.GroupID
-				if body.RemoveGroup {
-					newGroup = ""
+				// Group and label are independent: apply only the fields present
+				// so a label edit does not clear the group and vice versa.
+				if body.GroupID != nil || body.RemoveGroup {
+					newGroup := ""
+					if body.GroupID != nil {
+						newGroup = *body.GroupID
+					}
+					if body.RemoveGroup {
+						newGroup = ""
+					}
+					if err := enrollment.AssignAgentGroup(agentID, newGroup); err != nil {
+						http.Error(w, err.Error(), http.StatusNotFound)
+						return
+					}
+					if deps.Audit != nil {
+						deps.Audit.Log("agent_group_assigned", agentID, fmt.Sprintf("group=%s", newGroup))
+					}
 				}
-				if err := enrollment.AssignAgentGroup(agentID, newGroup); err != nil {
-					http.Error(w, err.Error(), http.StatusNotFound)
-					return
-				}
-				if deps.Audit != nil {
-					deps.Audit.Log("agent_group_assigned", agentID, fmt.Sprintf("group=%s", newGroup))
+				if body.Label != nil {
+					label := strings.TrimSpace(*body.Label)
+					if len(label) > 64 {
+						http.Error(w, "label too long (max 64)", http.StatusBadRequest)
+						return
+					}
+					if err := enrollment.SetAgentLabel(agentID, label); err != nil {
+						http.Error(w, err.Error(), http.StatusNotFound)
+						return
+					}
+					if deps.Audit != nil {
+						deps.Audit.Log("agent_label_set", agentID, label)
+					}
 				}
 				writeJSON(w, map[string]bool{"ok": true})
 			case http.MethodDelete:

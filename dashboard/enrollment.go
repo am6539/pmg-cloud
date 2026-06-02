@@ -38,6 +38,7 @@ type EnrollmentToken struct {
 type Agent struct {
 	ID         string     `json:"id"`
 	Hostname   string     `json:"hostname"`
+	Label      string     `json:"label,omitempty"` // admin-assigned friendly name (e.g. owner/dev)
 	OS         string     `json:"os"`
 	Arch       string     `json:"arch"`
 	PMGVersion string     `json:"pmg_version,omitempty"`
@@ -198,6 +199,19 @@ func (es *EnrollmentStore) AssignAgentGroup(agentID, groupID string) error {
 	for i, a := range es.data.Agents {
 		if a.ID == agentID {
 			es.data.Agents[i].GroupID = groupID
+			return es.save()
+		}
+	}
+	return fmt.Errorf("agent not found")
+}
+
+// SetAgentLabel updates an agent's admin-assigned friendly name.
+func (es *EnrollmentStore) SetAgentLabel(agentID, label string) error {
+	es.mu.Lock()
+	defer es.mu.Unlock()
+	for i, a := range es.data.Agents {
+		if a.ID == agentID {
+			es.data.Agents[i].Label = label
 			return es.save()
 		}
 	}

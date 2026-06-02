@@ -104,6 +104,7 @@ type EndpointInfo struct {
 	EndpointID        string    `json:"endpoint_id"`
 	MachineID         string    `json:"machine_id"`
 	Hostname          string    `json:"hostname"`
+	Label             string    `json:"label,omitempty"` // admin-assigned friendly name from the enrolled agent
 	OS                string    `json:"os"`
 	Arch              string    `json:"arch"`
 	RemoteIP          string    `json:"remote_ip,omitempty"`
@@ -556,6 +557,9 @@ func MergeAgentEndpoints(endpoints []EndpointInfo, agents []Agent) []EndpointInf
 		if a.PMGVersion != "" {
 			endpoints[i].ToolVersion = a.PMGVersion
 		}
+		if a.Label != "" {
+			endpoints[i].Label = a.Label
+		}
 		// Heartbeat keeps Agent.LastSeen fresh even without a new install event,
 		// so use it when newer to keep the Endpoints online/offline status in sync
 		// with the Agents tab.
@@ -575,6 +579,7 @@ func MergeAgentEndpoints(endpoints []EndpointInfo, agents []Agent) []EndpointInf
 			EndpointID:  a.ID,
 			MachineID:   a.ID,
 			Hostname:    a.Hostname,
+			Label:       a.Label,
 			OS:          a.OS,
 			Arch:        a.Arch,
 			RemoteIP:    a.RemoteIP,
