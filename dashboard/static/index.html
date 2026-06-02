@@ -790,22 +790,37 @@ function openPkgModal(i){
   document.getElementById('modal').style.display='flex';
   var q=new URLSearchParams({days:'90',limit:'100'});
   if(S.group)q.set('group_id',S.group);
-  api('/api/events?'+q.toString()).then(function(evs){
+  // Load events + agents in parallel so we can show the friendly device name
+  // (label/hostname) per event instead of the cryptic endpoint id.
+  Promise.all([
+    api('/api/events?'+q.toString()),
+    api('/api/agents').catch(function(){return [];})
+  ]).then(function(res){
+    var evs=res[0]||[];var agents=res[1]||[];
+    var labelByHost={};
+    agents.forEach(function(a){if(a.hostname)labelByHost[a.hostname.toLowerCase()]=a.label||'';});
+    function machineCell(e){
+      var host=e.hostname||'';
+      var label=host?labelByHost[host.toLowerCase()]:'';
+      if(label)return'<strong>'+h(label)+'</strong><div style="font-size:10px;color:var(--tx4)">'+h(host)+'</div>';
+      if(host)return h(host);
+      return'<span class="mono" style="font-size:10px;color:var(--tx4)">'+trunc(e.endpoint_id,16)+'</span>';
+    }
     var fl=evs.filter(function(e){return e.package_name===p.name;});
     document.getElementById('pkg-evts').innerHTML=
 '<div style="font-size:13px;font-weight:600;margin-bottom:8px">Recent Events ('+fl.length+')</div>'+
 '<div class="tbl-wrap" style="max-height:280px;overflow-y:auto"><table>'+
-'<thead><tr><th>Time</th><th>Action</th><th>Version</th><th>Malware</th><th>Verified</th><th>Analysis</th><th>Endpoint</th></tr></thead><tbody>'+
+'<thead><tr><th>Time</th><th>Machine</th><th>Action</th><th>Version</th><th>Malware</th><th>Verified</th><th>Analysis</th></tr></thead><tbody>'+
 (fl.length?fl.map(function(e){
   var aid=e.analysis_id||'';
   var aidCell=aid?'<a href="https://app.safedep.io/analysis/'+h(aid)+'" target="_blank" class="mono" style="font-size:10px;color:var(--acc)">'+h(aid.slice(0,12))+'…</a>':'—';
   return'<tr><td style="font-size:12px">'+fmtDate(e.received_at)+'</td>'+
+  '<td style="font-size:12px">'+machineCell(e)+'</td>'+
   '<td>'+actionBdg(e.action)+'</td>'+
   '<td class="mono">'+(e.package_version?h(e.package_version):'—')+'</td>'+
   '<td>'+malwareBdg(e.is_malware)+'</td>'+
   '<td>'+verifiedBdg(e.is_verified)+'</td>'+
-  '<td>'+aidCell+'</td>'+
-  '<td class="trunc" style="font-size:11px">'+trunc(e.endpoint_id,20)+'</td></tr>';
+  '<td>'+aidCell+'</td></tr>';
 }).join(''):'<tr><td colspan="7" class="empty">No events</td></tr>')+
 '</tbody></table></div>';
   }).catch(function(){});
