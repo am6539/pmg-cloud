@@ -715,15 +715,37 @@ async function renderPackages(){
   else renderEco(ps.top_ecosystems||[]);
 }
 
+function pkgVersionsCell(p){
+  var vs=p.versions||[];
+  if(!vs.length)return'<span style="color:var(--tx4)">—</span>';
+  var shown=vs.slice(0,3).map(function(v){return'<code style="font-size:10px">'+h(v)+'</code>';}).join(' ');
+  if(vs.length>3)shown+=' <span style="font-size:10px;color:var(--tx4)">+'+(vs.length-3)+'</span>';
+  return shown;
+}
+function pkgStatusCell(p){
+  var b=[];
+  if((p.malware_count||0)>0)b.push(bdg('Malware','red'));
+  if((p.cooldown_blocked_count||0)>0)b.push(bdg('Cooldown','yellow'));
+  var plainBlocked=(p.blocked_count||0)-(p.cooldown_blocked_count||0);
+  if(plainBlocked>0&&(p.malware_count||0)===0)b.push(bdg('Blocked','red'));
+  if(!b.length)b.push(bdg('Clean','green'));
+  return b.join(' ');
+}
 function renderTopPkgs(pkgs){
   _pkgs=pkgs;
   document.getElementById('pkg-inner').innerHTML=
-'<div class="tbl-wrap"><table><thead><tr><th>Package</th><th>Ecosystem</th><th>Installs</th><th>Blocked</th></tr></thead><tbody>'+
+'<div class="tbl-wrap"><table><thead><tr><th>Package</th><th>Ecosystem</th><th>Versions</th><th>Status</th><th>Installs</th><th>Blocked</th><th>Malware</th><th>Last Seen</th></tr></thead><tbody>'+
 (pkgs.length?pkgs.map(function(p,i){
   return'<tr class="clickable" onclick="openPkgModal('+i+')">'+
-  '<td><strong>'+h(p.name)+'</strong></td><td>'+ecoBdg(p.ecosystem)+'</td>'+
-  '<td>'+fmt(p.count)+'</td><td>'+((p.blocked_count||0)>0?bdg(fmt(p.blocked_count),'red'):'0')+'</td></tr>';
-}).join(''):'<tr><td colspan="4" class="empty">No data</td></tr>')+
+  '<td><strong>'+h(p.name)+'</strong></td>'+
+  '<td>'+ecoBdg(p.ecosystem)+'</td>'+
+  '<td>'+pkgVersionsCell(p)+'</td>'+
+  '<td>'+pkgStatusCell(p)+'</td>'+
+  '<td>'+fmt(p.count)+'</td>'+
+  '<td>'+((p.blocked_count||0)>0?bdg(fmt(p.blocked_count),'red'):'0')+'</td>'+
+  '<td>'+((p.malware_count||0)>0?bdg(fmt(p.malware_count),'red'):'<span style="color:var(--tx4)">0</span>')+'</td>'+
+  '<td style="font-size:12px;color:var(--tx3)">'+fmtDate(p.last_seen)+'</td></tr>';
+}).join(''):'<tr><td colspan="8" class="empty">No data</td></tr>')+
 '</tbody></table></div>';
 }
 
@@ -757,11 +779,14 @@ function openPkgModal(i){
   var p=_pkgs[i];if(!p)return;
   document.getElementById('modal-body').innerHTML=
 '<div class="modal-title"><span>'+h(p.name)+' '+ecoBdg(p.ecosystem)+'</span><button class="icon-btn" onclick="closeModal()">&#x2715;</button></div>'+
-'<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:14px">'+
+'<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:14px">'+
 '<div class="kpi"><div class="kpi-lbl">Total Installs</div><div class="kpi-val" style="font-size:22px">'+fmt(p.count)+'</div></div>'+
 '<div class="kpi'+((p.blocked_count||0)>0?' danger':'')+'"><div class="kpi-lbl">Blocked</div><div class="kpi-val" style="font-size:22px">'+fmt(p.blocked_count||0)+'</div></div>'+
+'<div class="kpi'+((p.malware_count||0)>0?' danger':'')+'"><div class="kpi-lbl">Malware</div><div class="kpi-val" style="font-size:22px">'+fmt(p.malware_count||0)+'</div></div>'+
 '<div class="kpi"><div class="kpi-lbl">Block Rate</div><div class="kpi-val" style="font-size:22px">'+(p.count>0?Math.round((p.blocked_count||0)/p.count*100):0)+'%</div></div>'+
-'</div><div id="pkg-evts"><div class="empty"><span class="spin">&#8635;</span></div></div>';
+'</div>'+
+((p.versions&&p.versions.length)?'<div style="margin-bottom:14px;font-size:12px;color:var(--tx3)">Versions: '+p.versions.map(function(v){return'<code style="font-size:10px">'+h(v)+'</code>';}).join(' ')+'</div>':'')+
+'<div id="pkg-evts"><div class="empty"><span class="spin">&#8635;</span></div></div>';
   document.getElementById('modal').style.display='flex';
   var q=new URLSearchParams({days:'90',limit:'100'});
   if(S.group)q.set('group_id',S.group);

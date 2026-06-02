@@ -82,10 +82,14 @@ type Stats struct {
 
 // PackageStat holds a name/count pair for top-N rankings.
 type PackageStat struct {
-	Name         string `json:"name"`
-	Ecosystem    string `json:"ecosystem,omitempty"`
-	Count        int    `json:"count"`
-	BlockedCount int    `json:"blocked_count,omitempty"`
+	Name                 string     `json:"name"`
+	Ecosystem            string     `json:"ecosystem,omitempty"`
+	Count                int        `json:"count"`
+	BlockedCount         int        `json:"blocked_count,omitempty"`
+	MalwareCount         int        `json:"malware_count,omitempty"`
+	CooldownBlockedCount int        `json:"cooldown_blocked_count,omitempty"`
+	Versions             []string   `json:"versions,omitempty"`
+	LastSeen             *time.Time `json:"last_seen,omitempty"`
 }
 
 // PackageStats is returned by GET /api/package-stats.
@@ -365,8 +369,11 @@ func Aggregate(events []Event) Stats {
 // ComputePackageStats returns top-10 packages, ecosystems, and endpoints by event count.
 func ComputePackageStats(events []Event) PackageStats {
 	pkgMap := make(map[string]PackageStat)
+	// versionSets tracks distinct versions seen per package key so the table can
+	// show which versions were involved without a drill-down.
+	versionSets := make(map[string]map[string]struct{})
 	ecoMap := make(map[string]int)
-	epMap  := make(map[string]int)
+	epMap := make(map[string]int)
 
 	for _, ev := range events {
 		if ev.EventType != "PACKAGE_DECISION" {
@@ -381,6 +388,22 @@ func ComputePackageStats(events []Event) PackageStats {
 			if ev.Action == "BLOCKED" || ev.Action == "COOLDOWN_BLOCKED" {
 				s.BlockedCount++
 			}
+			if ev.Action == "COOLDOWN_BLOCKED" {
+				s.CooldownBlockedCount++
+			}
+			if ev.IsMalware != nil && *ev.IsMalware {
+				s.MalwareCount++
+			}
+			if s.LastSeen == nil || ev.ReceivedAt.After(*s.LastSeen) {
+				t := ev.ReceivedAt
+				s.LastSeen = &t
+			}
+			if ev.PackageVersion != "" {
+				if versionSets[key] == nil {
+					versionSets[key] = make(map[string]struct{})
+				}
+				versionSets[key][ev.PackageVersion] = struct{}{}
+			}
 			pkgMap[key] = s
 		}
 		if ev.Ecosystem != "" {
@@ -389,6 +412,18 @@ func ComputePackageStats(events []Event) PackageStats {
 		if ev.EndpointID != "" {
 			epMap[ev.EndpointID]++
 		}
+	}
+
+	// Materialize sorted version lists onto each package stat.
+	for key, set := range versionSets {
+		versions := make([]string, 0, len(set))
+		for v := range set {
+			versions = append(versions, v)
+		}
+		sort.Strings(versions)
+		s := pkgMap[key]
+		s.Versions = versions
+		pkgMap[key] = s
 	}
 
 	topN := func(list []PackageStat, n int) []PackageStat {
