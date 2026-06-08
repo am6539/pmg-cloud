@@ -2,3 +2,35 @@ certs/*.key
 certs/*.crt
 data/
 *.bin
+pmg-cloud-bin
+pmg-cloud
+
+# Environment files (keep .env.example and .env.production as templates)
+.env
+.env.local
+.env.*.local
+!.env.example
+!.env.production
+
+# Sensitive files
+credentials.txt
+*secret*
+*password*
+
+# Backups and logs
+backups/
+logs/
+*.log
+
+# Temp files
+*.tmp
+*.temp
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~

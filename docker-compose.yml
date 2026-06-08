@@ -11,6 +11,7 @@ services:
       - PMG_CLOUD_API_KEYS=changeme
       # Set to your public domain — gRPC is muxed on port 8080 alongside the dashboard.
       # Cloudflare Tunnel forwards HTTP/2 so gRPC reaches agents via host:443 with valid TLS.
-      - PMG_CLOUD_GRPC_PUBLIC_ADDR=package.thanhvpga.qzz.io:443
+      # Example: your-domain.com:443
+      - PMG_CLOUD_GRPC_PUBLIC_ADDR=your-domain.com:443
     # Disable dedicated gRPC port (--addr=); gRPC is served on --http-addr via h2c mux.
     command: ["--addr=", "--data-dir=/data", "--http-addr=:8080"]

@@ -1,0 +1,42 @@
+[Unit]
+Description=PMG Cloud Server
+After=network.target
+
+[Service]
+Type=simple
+User=pmg
+Group=pmg
+WorkingDirectory=/opt/pmg-cloud
+
+# Environment variables
+Environment="PMG_CLOUD_API_KEYS=your-api-key"
+Environment="PMG_CLOUD_DASH_USER=admin"
+Environment="PMG_CLOUD_DASH_PASS=your-password"
+
+# Binary và arguments
+ExecStart=/opt/pmg-cloud/pmg-cloud \
+  --addr=:8443 \
+  --http-addr=:8080 \
+  --data-dir=/opt/pmg-cloud/data \
+  --tls-cert=/opt/pmg-cloud/certs/tls.crt \
+  --tls-key=/opt/pmg-cloud/certs/tls.key \
+  --retention-days=30 \
+  --malware-refresh-interval=6h
+
+# Restart policy
+Restart=always
+RestartSec=10
+
+# Security hardening
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/pmg-cloud/data
+
+# Limits
+LimitNOFILE=65536
+LimitNPROC=4096
+
+[Install]
+WantedBy=multi-user.target

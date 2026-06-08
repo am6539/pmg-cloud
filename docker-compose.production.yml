@@ -1,0 +1,22 @@
+services:
+  pmg-cloud:
+    build: .
+    ports:
+      - "8443:8443"  # gRPC với TLS - agents kết nối vào đây
+      - "8080:8080"  # HTTP dashboard
+    volumes:
+      - ./data:/data
+      - ./certs:/certs:ro
+    environment:
+      - PMG_CLOUD_API_KEYS=${PMG_CLOUD_API_KEYS:-changeme}
+      - PMG_CLOUD_DASH_USER=${PMG_CLOUD_DASH_USER:-admin}
+      - PMG_CLOUD_DASH_PASS=${PMG_CLOUD_DASH_PASS:-admin}
+    restart: unless-stopped
+    command:
+      - "--addr=:8443"
+      - "--http-addr=:8080"
+      - "--data-dir=/data"
+      - "--tls-cert=/certs/tls.crt"
+      - "--tls-key=/certs/tls.key"
+      - "--retention-days=30"
+      - "--malware-refresh-interval=6h"
