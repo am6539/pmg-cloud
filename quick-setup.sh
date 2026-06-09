@@ -23,19 +23,49 @@ else
     echo "  ✓ Docker already installed: $(docker --version)"
 fi
 
-# Detect docker compose command
+# Detect and install docker compose if needed
+echo "  → Detecting Docker Compose..."
+DOCKER_COMPOSE=""
+
 if docker compose version &> /dev/null; then
     DOCKER_COMPOSE="docker compose"
-    echo "  ✓ Using: docker compose (v2)"
+    echo "  ✓ Found: docker compose (v2)"
 elif command -v docker-compose &> /dev/null; then
     DOCKER_COMPOSE="docker-compose"
-    echo "  ✓ Using: docker-compose (v1)"
+    echo "  ✓ Found: docker-compose (v1)"
 else
-    echo "  ✗ Docker Compose not found. Installing..."
-    sudo apt-get update
-    sudo apt-get install -y docker-compose-plugin
-    DOCKER_COMPOSE="docker compose"
+    echo "  → Docker Compose not found, installing plugin..."
+
+    # Try to install docker-compose-plugin
+    if command -v apt-get &> /dev/null; then
+        sudo apt-get update -qq
+        sudo apt-get install -y docker-compose-plugin
+    elif command -v yum &> /dev/null; then
+        sudo yum install -y docker-compose-plugin
+    else
+        echo "  → Cannot detect package manager, installing docker-compose manually..."
+        sudo curl -L "https://github.com/docker/compose/releases/latest/download/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
+        sudo chmod +x /usr/local/bin/docker-compose
+        DOCKER_COMPOSE="docker-compose"
+    fi
+
+    # Verify installation
+    if docker compose version &> /dev/null; then
+        DOCKER_COMPOSE="docker compose"
+        echo "  ✓ Installed: docker compose (v2)"
+    elif command -v docker-compose &> /dev/null; then
+        DOCKER_COMPOSE="docker-compose"
+        echo "  ✓ Installed: docker-compose (v1)"
+    else
+        echo "  ✗ Failed to install Docker Compose"
+        echo ""
+        echo "Please install Docker Compose manually:"
+        echo "  https://docs.docker.com/compose/install/"
+        exit 1
+    fi
 fi
+
+echo "  → Using command: $DOCKER_COMPOSE"
 
 # Step 2: Clone repository
 echo ""
