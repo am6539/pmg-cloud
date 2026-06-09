@@ -58,27 +58,24 @@ if (-not $PMG_TOKEN) {
   Write-Error '--token=TOKEN is required'; exit 1
 }
 
-# Detect architecture (goreleaser naming: x86_64 / arm64 / i386)
+# Detect architecture
 $archRaw = if ([Environment]::Is64BitOperatingSystem) {
-  if ($env:PROCESSOR_ARCHITECTURE -eq 'ARM64') { 'arm64' } else { 'x86_64' }
+  if ($env:PROCESSOR_ARCHITECTURE -eq 'ARM64') { 'arm64' } else { 'amd64' }
 } else { 'i386' }
 
-# Fetch latest release from GitHub
-Write-Host 'Fetching latest PMG release...'
-$rel   = Invoke-RestMethod 'https://api.github.com/repos/am6539/pmg/releases/latest'
-$asset = $rel.assets | Where-Object { $_.name -like "pmg_Windows_${archRaw}.zip" } | Select-Object -First 1
-if (-not $asset) { Write-Error "No Windows binary found for arch: $archRaw"; exit 1 }
-
-# Download and extract zip
+# Download PMG binary from pmg-cloud server (no internet required)
 $dir = "$env:LOCALAPPDATA\pmg"
 New-Item -ItemType Directory -Force -Path $dir | Out-Null
-$zip = "$env:TEMP\pmg_windows.zip"
-Write-Host "Downloading PMG $($rel.tag_name)..."
-Invoke-WebRequest $asset.browser_download_url -OutFile $zip
-Expand-Archive -Path $zip -DestinationPath $dir -Force
-Remove-Item $zip -Force
 $bin = "$dir\pmg.exe"
-if (-not (Test-Path $bin)) { Write-Error "pmg.exe not found after extraction"; exit 1 }
+
+$binaryURL = "${PMG_SERVER}/bin/windows/${archRaw}/pmg"
+Write-Host "Downloading PMG from ${binaryURL}..."
+try {
+  Invoke-WebRequest -Uri $binaryURL -OutFile $bin -UseBasicParsing
+} catch {
+  Write-Error "Failed to download PMG binary from server: $_"; exit 1
+}
+if (-not (Test-Path $bin)) { Write-Error "pmg.exe not found after download"; exit 1 }
 
 # Add to PATH (user scope)
 $userPath = [Environment]::GetEnvironmentVariable('Path', 'User')
@@ -122,17 +119,50 @@ if [ -z "$PMG_TOKEN" ]; then
   exit 1
 fi
 
-# Install PMG binary
-echo "Installing PMG..."
-curl -fsSL https://raw.githubusercontent.com/am6539/pmg/main/install.sh | sh
+# Detect OS and architecture
+OS="$(uname -s | tr '[:upper:]' '[:lower:]')"
+ARCH="$(uname -m)"
+case "$ARCH" in
+  x86_64)          ARCH="amd64" ;;
+  aarch64|arm64)   ARCH="arm64" ;;
+  *) echo "Unsupported architecture: $ARCH" >&2; exit 1 ;;
+esac
+
+# Install directory
+INSTALL_DIR="${HOME}/.local/bin"
+mkdir -p "${INSTALL_DIR}"
+
+# Download PMG binary from pmg-cloud server (no internet required)
+BINARY_URL="${PMG_SERVER}/bin/${OS}/${ARCH}/pmg"
+echo "Downloading PMG from ${BINARY_URL}..."
+if command -v curl >/dev/null 2>&1; then
+  curl -fsSL "${BINARY_URL}" -o "${INSTALL_DIR}/pmg"
+elif command -v wget >/dev/null 2>&1; then
+  wget -q -O "${INSTALL_DIR}/pmg" "${BINARY_URL}"
+else
+  echo "Error: curl or wget is required" >&2; exit 1
+fi
+chmod +x "${INSTALL_DIR}/pmg"
+
+# Add to PATH if not already present
+case ":${PATH}:" in
+  *:"${INSTALL_DIR}":*) ;;
+  *)
+    echo "export PATH=\"${INSTALL_DIR}:\$PATH\"" >> "${HOME}/.bashrc"
+    echo "export PATH=\"${INSTALL_DIR}:\$PATH\"" >> "${HOME}/.zshrc" 2>/dev/null || true
+    export PATH="${INSTALL_DIR}:${PATH}"
+    ;;
+esac
+
+echo "PMG installed to ${INSTALL_DIR}/pmg"
 
 # Enroll with server
 echo "Enrolling with PMG Cloud..."
-pmg cloud enroll --endpoint="$PMG_SERVER" --token="$PMG_TOKEN"
+"${INSTALL_DIR}/pmg" cloud enroll --endpoint="$PMG_SERVER" --token="$PMG_TOKEN"
 
 # Wire PMG into shell (aliases + shims)
 echo "Wiring PMG into your shell..."
-pmg setup install
+"${INSTALL_DIR}/pmg" setup install
 
 echo ""
 echo "Done! PMG is installed, enrolled, and active."
@@ -1041,6 +1071,52 @@ func Handler(dataDir string, deps HandlerDeps) http.Handler {
 	if deps.Enrollment != nil {
 		enrollment := deps.Enrollment
 		enrollRL := newIPRateLimiter() // tighter: 5 req/min per IP
+
+		// GET /bin/{os}/{arch}/pmg — public endpoint, serve PMG binaries for offline installation
+		mux.HandleFunc("/bin/", func(w http.ResponseWriter, r *http.Request) {
+			// Parse: /bin/linux/amd64/pmg → os=linux, arch=amd64
+			parts := strings.Split(strings.TrimPrefix(r.URL.Path, "/bin/"), "/")
+			if len(parts) < 3 {
+				http.Error(w, "invalid path format, expected /bin/{os}/{arch}/pmg", http.StatusBadRequest)
+				return
+			}
+
+			goos, goarch := parts[0], parts[1]
+
+			// Validate platform
+			validPlatforms := map[string]bool{
+				"linux/amd64":   true,
+				"linux/arm64":   true,
+				"darwin/amd64":  true,
+				"darwin/arm64":  true,
+				"windows/amd64": true,
+			}
+			platform := goos + "/" + goarch
+			if !validPlatforms[platform] {
+				http.Error(w, fmt.Sprintf("unsupported platform: %s", platform), http.StatusNotFound)
+				return
+			}
+
+			// Check if UpdateStore is available
+			if deps.Updates == nil {
+				http.Error(w, "binary distribution not enabled on this server", http.StatusServiceUnavailable)
+				return
+			}
+
+			// Get binary path
+			binPath := deps.Updates.BinaryPath(goos, goarch)
+
+			// Check if binary exists
+			if _, err := os.Stat(binPath); os.IsNotExist(err) {
+				http.Error(w, fmt.Sprintf("binary not available for %s/%s - admin must fetch binaries first", goos, goarch), http.StatusNotFound)
+				return
+			}
+
+			// Serve binary
+			w.Header().Set("Content-Type", "application/octet-stream")
+			w.Header().Set("Content-Disposition", "attachment; filename=pmg")
+			http.ServeFile(w, r, binPath)
+		})
 
 		// GET /install.sh — unauthenticated, serves dynamic install script (Linux/macOS)
 		mux.HandleFunc("/install.sh", func(w http.ResponseWriter, r *http.Request) {
