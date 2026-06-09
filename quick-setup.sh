@@ -23,49 +23,38 @@ else
     echo "  ✓ Docker already installed: $(docker --version)"
 fi
 
-# Detect and install docker compose if needed
-echo "  → Detecting Docker Compose..."
-DOCKER_COMPOSE=""
+# Ensure docker compose v2 plugin is installed
+# docker-compose v1 (1.29.x) is too old and incompatible with Docker 29+
+echo "  → Checking Docker Compose v2..."
 
 if docker compose version &> /dev/null; then
-    DOCKER_COMPOSE="docker compose"
-    echo "  ✓ Found: docker compose (v2)"
-elif command -v docker-compose &> /dev/null; then
-    DOCKER_COMPOSE="docker-compose"
-    echo "  ✓ Found: docker-compose (v1)"
+    echo "  ✓ docker compose v2 already installed: $(docker compose version)"
 else
-    echo "  → Docker Compose not found, installing plugin..."
-
-    # Try to install docker-compose-plugin
+    echo "  → Installing docker-compose-plugin (v2)..."
     if command -v apt-get &> /dev/null; then
         sudo apt-get update -qq
         sudo apt-get install -y docker-compose-plugin
     elif command -v yum &> /dev/null; then
         sudo yum install -y docker-compose-plugin
+    elif command -v dnf &> /dev/null; then
+        sudo dnf install -y docker-compose-plugin
     else
-        echo "  → Cannot detect package manager, installing docker-compose manually..."
-        sudo curl -L "https://github.com/docker/compose/releases/latest/download/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
-        sudo chmod +x /usr/local/bin/docker-compose
-        DOCKER_COMPOSE="docker-compose"
+        # Fallback: install binary directly
+        COMPOSE_URL="https://github.com/docker/compose/releases/latest/download/docker-compose-$(uname -s)-$(uname -m)"
+        sudo curl -fsSL "$COMPOSE_URL" -o /usr/local/lib/docker/cli-plugins/docker-compose
+        sudo chmod +x /usr/local/lib/docker/cli-plugins/docker-compose
     fi
 
-    # Verify installation
-    if docker compose version &> /dev/null; then
-        DOCKER_COMPOSE="docker compose"
-        echo "  ✓ Installed: docker compose (v2)"
-    elif command -v docker-compose &> /dev/null; then
-        DOCKER_COMPOSE="docker-compose"
-        echo "  ✓ Installed: docker-compose (v1)"
-    else
-        echo "  ✗ Failed to install Docker Compose"
-        echo ""
-        echo "Please install Docker Compose manually:"
-        echo "  https://docs.docker.com/compose/install/"
+    if ! docker compose version &> /dev/null; then
+        echo "  ✗ Failed to install Docker Compose v2"
+        echo "  Run manually: sudo apt-get install -y docker-compose-plugin"
         exit 1
     fi
+    echo "  ✓ Installed: $(docker compose version)"
 fi
 
-echo "  → Using command: $DOCKER_COMPOSE"
+DOCKER_COMPOSE="docker compose"
+echo "  → Using: $DOCKER_COMPOSE"
 
 # Step 2: Clone repository
 echo ""
