@@ -23,6 +23,20 @@ else
     echo "  ✓ Docker already installed: $(docker --version)"
 fi
 
+# Detect docker compose command
+if docker compose version &> /dev/null; then
+    DOCKER_COMPOSE="docker compose"
+    echo "  ✓ Using: docker compose (v2)"
+elif command -v docker-compose &> /dev/null; then
+    DOCKER_COMPOSE="docker-compose"
+    echo "  ✓ Using: docker-compose (v1)"
+else
+    echo "  ✗ Docker Compose not found. Installing..."
+    sudo apt-get update
+    sudo apt-get install -y docker-compose-plugin
+    DOCKER_COMPOSE="docker compose"
+fi
+
 # Step 2: Clone repository
 echo ""
 echo "📥 [2/5] Cloning PMG Cloud repository..."
@@ -103,8 +117,8 @@ echo "      - PMG_CLOUD_DASH_PASS=$DASH_PASS" >> docker-compose.override.yml
 
 # Build and start
 echo "  → Building and starting containers..."
-docker compose build 2>&1 | grep -v "^#" || true
-docker compose up -d
+$DOCKER_COMPOSE build 2>&1 | grep -v "^#" || true
+$DOCKER_COMPOSE up -d
 
 sleep 3
 echo "  ✓ PMG Cloud started"
@@ -121,7 +135,7 @@ else
     echo "  ✗ Service failed to start"
     echo ""
     echo "  Checking logs..."
-    docker compose logs --tail 50
+    $DOCKER_COMPOSE logs --tail 50
     exit 1
 fi
 
@@ -139,7 +153,7 @@ for i in {1..30}; do
         echo "  ✗ Service did not become healthy"
         echo ""
         echo "  Logs:"
-        docker compose logs --tail 50
+        $DOCKER_COMPOSE logs --tail 50
         exit 1
     fi
 done
@@ -173,10 +187,10 @@ echo "  - Save credentials.txt to a safe location"
 echo "  - Delete credentials.txt from server after saving"
 echo ""
 echo "🔧 Useful Commands:"
-echo "  View logs:    docker compose logs -f"
-echo "  Stop service: docker compose down"
-echo "  Restart:      docker compose restart"
-echo "  Status:       docker compose ps"
+echo "  View logs:    $DOCKER_COMPOSE logs -f"
+echo "  Stop service: $DOCKER_COMPOSE down"
+echo "  Restart:      $DOCKER_COMPOSE restart"
+echo "  Status:       $DOCKER_COMPOSE ps"
 echo ""
 echo "📖 Next Steps:"
 echo "  1. Access dashboard at http://$SERVER_IP:8080"
