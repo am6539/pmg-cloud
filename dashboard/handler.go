@@ -1159,6 +1159,7 @@ func Handler(dataDir string, deps HandlerDeps) http.Handler {
 				OS         string `json:"os"`
 				Arch       string `json:"arch"`
 				PMGVersion string `json:"pmg_version"`
+				LocalIP    string `json:"local_ip"`
 			}
 			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 				http.Error(w, "invalid JSON", http.StatusBadRequest)
@@ -1219,6 +1220,7 @@ func Handler(dataDir string, deps HandlerDeps) http.Handler {
 				Arch:       req.Arch,
 				PMGVersion: req.PMGVersion,
 				RemoteIP:   ip,
+				LocalIP:    req.LocalIP,
 				GroupID:    groupID,
 				APIKeyID:   apiKeyID,
 				EnrolledAt: time.Now().UTC(),
