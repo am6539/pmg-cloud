@@ -619,10 +619,15 @@ function evNext(){S.evOffset+=50;loadPage();}
 
 /* ---- ENDPOINTS ---- */
 var epList=[];
-function epOnline(last_seen){
-  if(!last_seen)return false;
-  return(Date.now()-new Date(last_seen).getTime())<24*60*60*1000;
+var M5=5*60*1000,H1=60*60*1000;
+function epStatus(last_seen){
+  if(!last_seen)return{label:'Offline',dot:'dot-gray',color:'var(--tx4)'};
+  var age=Date.now()-new Date(last_seen).getTime();
+  if(age<M5)return{label:'Online',dot:'dot-green dot-pulse',color:'var(--ok)'};
+  if(age<H1)return{label:'Away',dot:'dot-yellow',color:'var(--wn)'};
+  return{label:'Offline',dot:'dot-gray',color:'var(--tx4)'};
 }
+function epOnline(last_seen){return epStatus(last_seen).label==='Online';}
 function statusDot(online){
   return online?
     '<span class="dot dot-green dot-pulse" style="display:inline-block;margin-right:5px"></span>':
@@ -637,9 +642,9 @@ async function renderEndpoints(){
 '<div class="tbl-wrap"><table>'+
 '<thead><tr><th>Status</th><th>Endpoint ID</th><th>Device</th><th>OS</th><th>IP Address</th><th>PMG Version</th><th>Sessions</th><th>Packages</th><th>Blocked</th><th>Last Seen</th></tr></thead>'+
 '<tbody>'+(epList.length?epList.map(function(ep,i){
-  var online=epOnline(ep.last_seen);
+  var st=epStatus(ep.last_seen);
   return'<tr class="clickable" onclick="openEpDrawer('+i+')">'+
-  '<td style="white-space:nowrap">'+statusDot(online)+'<span style="font-size:12px;font-weight:600;color:'+(online?'var(--ok)':'var(--tx4)')+'">'+( online?'Online':'Offline')+'</span></td>'+
+  '<td style="white-space:nowrap"><span class="dot '+st.dot+'" style="display:inline-block;margin-right:5px"></span><span style="font-size:12px;font-weight:600;color:'+st.color+'">'+st.label+'</span></td>'+
   '<td class="trunc mono" title="'+h(ep.endpoint_id)+'" style="font-size:11px">'+trunc(ep.endpoint_id,18)+'</td>'+
   '<td>'+(ep.label?'<strong>'+h(ep.label)+'</strong><div style="font-size:11px;color:var(--tx4)">'+h(ep.hostname||'')+'</div>':(ep.hostname?h(ep.hostname):'—'))+'</td>'+
   '<td>'+bdg(ep.os||'—','gray')+'</td>'+
@@ -678,7 +683,7 @@ function openEpDrawer(i){
   api('/api/endpoints/'+encodeURIComponent(ep.endpoint_id)+'/events').then(function(evs){
     document.getElementById('drawer-body').innerHTML=
 '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px;font-size:13px">'+
-'<div><div class="lbl">Status</div><div>'+bdg(epOnline(ep.last_seen)?'Online':'Offline',epOnline(ep.last_seen)?'green':'gray')+'</div></div>'+
+'<div><div class="lbl">Status</div><div>'+bdg(epStatus(ep.last_seen).label,epStatus(ep.last_seen).label==='Online'?'green':epStatus(ep.last_seen).label==='Away'?'yellow':'gray')+'</div></div>'+
 '<div><div class="lbl">IP Address</div><div class="mono" style="font-size:12px">'+(ep.remote_ip?h(ep.remote_ip):'—')+'</div></div>'+
 '<div><div class="lbl">Endpoint ID</div><div class="mono" style="font-size:10px;word-break:break-all">'+h(ep.endpoint_id)+'</div></div>'+
 '<div><div class="lbl">Machine ID</div><div class="mono" style="font-size:11px">'+(ep.machine_id?h(ep.machine_id):'—')+'</div></div>'+
@@ -966,11 +971,10 @@ async function renderAgents(){
   try{agents=await api('/api/agents');}catch(e){}
   if(S.me&&S.me.role==='admin'){try{tokens=await api('/api/enrollment-tokens');}catch(e){}}
   var groups=S.groups||[];
-  var H72=72*60*60*1000;
-  var missing=agents.filter(function(a){return!a.last_seen||(Date.now()-new Date(a.last_seen).getTime())>=H72;});
+  var missing=agents.filter(function(a){return epStatus(a.last_seen).label==='Offline';});
   var missingBanner=missing.length?
     '<div class="alert-bar danger" style="display:flex;border-radius:9px;margin-bottom:16px;border:1px solid #fca5a5">'+
-    '&#9888;&#65039; <strong>'+missing.length+' agent'+(missing.length>1?'s':'')+' may have PMG removed</strong> — last heartbeat &gt; 72 hours ago: '+
+    '&#9888;&#65039; <strong>'+missing.length+' agent'+(missing.length>1?'s':'')+' offline</strong> — last heartbeat &gt; 1 hour ago: '+
     missing.map(function(a){return'<code>'+h(a.hostname)+'</code>';}).join(', ')+'</div>':'';
   document.getElementById('content').innerHTML=
 missingBanner+
@@ -983,11 +987,8 @@ missingBanner+
 (agents.length?agents.map(function(a){
   var grp=groups.find(function(g){return g.id===a.group_id;})||null;
   var age=a.last_seen?(Date.now()-new Date(a.last_seen).getTime()):Infinity;
-  var H1=60*60*1000,H24=24*H1,H72=72*H1;
-  var stLabel,stDot,stColor;
-  if(age<H24){stLabel='Active';stDot='dot-green dot-pulse';stColor='var(--ok)';}
-  else if(age<H72){stLabel='Idle';stDot='dot-yellow';stColor='var(--wn)';}
-  else{stLabel='Missing PMG';stDot='dot-red';stColor='var(--dn)';}
+  var st=epStatus(a.last_seen);
+  var stLabel=st.label,stDot=st.dot,stColor=st.color;
   var statusCell='<td style="white-space:nowrap"><span class="dot '+stDot+'" style="display:inline-block;margin-right:5px"></span><span style="font-size:12px;font-weight:600;color:'+stColor+'">'+stLabel+'</span></td>';
   var deviceCell=a.label
     ? '<strong>'+h(a.label)+'</strong><div style="font-size:11px;color:var(--tx4)">'+h(a.hostname)+'</div>'
