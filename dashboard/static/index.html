@@ -619,12 +619,12 @@ function evNext(){S.evOffset+=50;loadPage();}
 
 /* ---- ENDPOINTS ---- */
 var epList=[];
-var M5=5*60*1000,H1=60*60*1000;
+var M30=30*60*1000,H2=2*60*60*1000;
 function epStatus(last_seen){
   if(!last_seen)return{label:'Offline',dot:'dot-gray',color:'var(--tx4)'};
   var age=Date.now()-new Date(last_seen).getTime();
-  if(age<M5)return{label:'Online',dot:'dot-green dot-pulse',color:'var(--ok)'};
-  if(age<H1)return{label:'Away',dot:'dot-yellow',color:'var(--wn)'};
+  if(age<M30)return{label:'Online',dot:'dot-green dot-pulse',color:'var(--ok)'};
+  if(age<H2)return{label:'Away',dot:'dot-yellow',color:'var(--wn)'};
   return{label:'Offline',dot:'dot-gray',color:'var(--tx4)'};
 }
 function epOnline(last_seen){return epStatus(last_seen).label==='Online';}
@@ -974,7 +974,7 @@ async function renderAgents(){
   var missing=agents.filter(function(a){return epStatus(a.last_seen).label==='Offline';});
   var missingBanner=missing.length?
     '<div class="alert-bar danger" style="display:flex;border-radius:9px;margin-bottom:16px;border:1px solid #fca5a5">'+
-    '&#9888;&#65039; <strong>'+missing.length+' agent'+(missing.length>1?'s':'')+' offline</strong> — last heartbeat &gt; 1 hour ago: '+
+    '&#9888;&#65039; <strong>'+missing.length+' agent'+(missing.length>1?'s':'')+' offline</strong> — last heartbeat &gt; 2 hours ago: '+
     missing.map(function(a){return'<code>'+h(a.hostname)+'</code>';}).join(', ')+'</div>':'';
   document.getElementById('content').innerHTML=
 missingBanner+
@@ -998,7 +998,7 @@ missingBanner+
   '<td style="font-size:12px;color:var(--tx3)">'+h(a.os||'')+(a.arch?' / '+h(a.arch):'')+(a.pmg_version?' &nbsp;<code>v'+h(a.pmg_version)+'</code>':'')+'</td>'+
   '<td>'+(grp?bdg(grp.name,'teal'):'<span style="color:var(--tx4)">unassigned</span>')+'</td>'+
   '<td style="font-size:12px;color:var(--tx3)">'+fmtDate(a.enrolled_at)+'</td>'+
-  '<td style="font-size:12px;color:'+(age>H72?'var(--dn)':'var(--tx3)')+'">'+fmtDate(a.last_seen)+'</td>'+
+  '<td style="font-size:12px;color:'+(st.label==='Offline'?'var(--dn)':'var(--tx3)')+'">'+fmtDate(a.last_seen)+'</td>'+
   '<td class="flex" style="gap:4px">'+
   (S.me&&S.me.role==='admin'?
     '<button class="btn btn-sm btn-ghost" onclick="renameAgent(\''+h(a.id)+'\',\''+h(a.label||'')+'\')">Rename</button>'+
