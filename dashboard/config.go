@@ -44,10 +44,12 @@ type AlertChannel struct {
 
 // ServerConfig is the full server configuration persisted to config.json.
 type ServerConfig struct {
-	RetentionDays int            `json:"retention_days"`
-	Alert         AlertConfig    `json:"alert"`
-	Webhooks      []WebhookEntry `json:"webhooks"`
-	AlertChannels []AlertChannel `json:"alert_channels"`
+	RetentionDays  int            `json:"retention_days"`
+	Alert          AlertConfig    `json:"alert"`
+	Webhooks       []WebhookEntry `json:"webhooks"`
+	AlertChannels  []AlertChannel `json:"alert_channels"`
+	PublicEndpoint string         `json:"public_endpoint"` // Public endpoint for agent enrollment (e.g. "http://1.2.3.4:8080" or "https://pmg.company.com")
+	AgentUseTLS    bool           `json:"agent_use_tls"`   // true when agents should use TLS (https/grpcs)
 }
 
 // ConfigStore manages server configuration in a thread-safe way.

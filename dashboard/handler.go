@@ -1233,10 +1233,24 @@ func Handler(dataDir string, deps HandlerDeps) http.Handler {
 					fmt.Sprintf("ip=%s os=%s arch=%s", ip, req.OS, req.Arch))
 			}
 
-			// Determine gRPC endpoint
-			endpoint := deps.GRPCAddr
+			// Determine endpoint reported to the enrolling agent.
+			// Priority:
+			//   1. Dashboard-configured public endpoint (admin sets once via Settings UI)
+			//   2. CLI flag / env var (--grpc-public-addr / PMG_CLOUD_GRPC_PUBLIC_ADDR)
+			//   3. Auto-detect from request host (fallback, replaces port with :8443)
+			endpoint := ""
+			insecure := deps.GRPCInsecure
+
+			if deps.Config != nil {
+				if cfg := deps.Config.Get(); cfg.PublicEndpoint != "" {
+					endpoint = cfg.PublicEndpoint
+					insecure = !cfg.AgentUseTLS
+				}
+			}
 			if endpoint == "" {
-				// Derive from request host by replacing port with 8443
+				endpoint = deps.GRPCAddr
+			}
+			if endpoint == "" {
 				host := r.Host
 				if idx := strings.LastIndex(host, ":"); idx != -1 {
 					host = host[:idx]
@@ -1247,7 +1261,7 @@ func Handler(dataDir string, deps HandlerDeps) http.Handler {
 			writeJSON(w, map[string]any{
 				"api_key":  plainKey,
 				"endpoint": endpoint,
-				"insecure": deps.GRPCInsecure,
+				"insecure": insecure,
 				"group_id": groupID,
 				"agent_id": agentID,
 			})

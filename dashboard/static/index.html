@@ -1329,7 +1329,24 @@ async function renderSettings(){
   var al=cfg.alert_config||{};
   var users=[];
   if(S.me&&S.me.role==='admin'){try{users=await api('/api/users');}catch(e){}}
+
+  var publicEndpoint=cfg.public_endpoint||'';
+  var agentUseTLS=cfg.agent_use_tls!==false;
+
   document.getElementById('content').innerHTML=
+'<div class="card" style="margin-bottom:20px"><div class="card-title">Agent Enrollment Endpoint</div>'+
+'<div class="fg"><label class="lbl">Public endpoint for agents</label>'+
+'<input class="input" type="text" id="cfg-endpoint" value="'+h(publicEndpoint)+'" '+
+'placeholder="http://1.2.3.4:8080 or https://pmg.company.com" style="font-family:monospace"></div>'+
+'<div class="fg flex"><label class="toggle"><input type="checkbox" id="cfg-tls"'+(agentUseTLS?' checked':'')+'>'+
+'<span class="tog-sl"></span></label><span style="font-size:13px">Agents use TLS (HTTPS/gRPCS)</span></div>'+
+'<div style="font-size:12px;color:var(--tx3);margin:8px 0">'+
+'Examples:<br>'+
+'• Dev/Lab: <code style="background:var(--bg2);padding:2px 4px;border-radius:3px">http://localhost:8080</code><br>'+
+'• Production IP: <code style="background:var(--bg2);padding:2px 4px;border-radius:3px">http://1.2.3.4:8080</code><br>'+
+'• Domain with TLS: <code style="background:var(--bg2);padding:2px 4px;border-radius:3px">https://pmg.company.com</code>'+
+'</div>'+
+'<button class="btn btn-primary" onclick="saveEndpointConfig()">Save Endpoint</button></div>'+
 '<div class="two-col">'+
 '<div class="card"><div class="card-title">Data Retention</div>'+
 '<div class="fg"><label class="lbl">Delete events older than</label>'+
@@ -1626,6 +1643,16 @@ async function testAlertChannel(id){
 async function saveRetention(){
   var days=parseInt(document.getElementById('cfg-ret').value)||0;
   try{var c=await api('/api/config');c.retention_days=days;await fetch('/api/config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(c)});showToast('Saved!','success');}
+  catch(e){showToast('Error: '+e.message,'error');}
+}
+async function saveEndpointConfig(){
+  var endpoint=document.getElementById('cfg-endpoint').value.trim();
+  var useTLS=document.getElementById('cfg-tls').checked;
+  if(endpoint&&!endpoint.match(/^https?:\/\/.+/)){
+    showToast('Endpoint must start with http:// or https://','error');
+    return;
+  }
+  try{var c=await api('/api/config');c.public_endpoint=endpoint;c.agent_use_tls=useTLS;await fetch('/api/config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(c)});S.config=c;showToast('Endpoint saved!','success');}
   catch(e){showToast('Error: '+e.message,'error');}
 }
 async function saveAlerts(){
