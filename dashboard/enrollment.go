@@ -43,6 +43,7 @@ type Agent struct {
 	Arch       string     `json:"arch"`
 	PMGVersion string     `json:"pmg_version,omitempty"`
 	RemoteIP   string     `json:"remote_ip,omitempty"`
+	LocalIP    string     `json:"local_ip,omitempty"`
 	GroupID    string     `json:"group_id,omitempty"`
 	APIKeyID   string     `json:"api_key_id"`
 	EnrolledAt time.Time  `json:"enrolled_at"`
@@ -223,7 +224,7 @@ func (es *EnrollmentStore) SetAgentLabel(agentID, label string) error {
 // Called on every successful sync and heartbeat so the Agents tab reflects
 // live activity and the currently-running PMG version. Returns nil (not an
 // error) if no agent matches, since a touch miss is non-fatal.
-func (es *EnrollmentStore) TouchAgentByAPIKeyID(keyID, version string) error {
+func (es *EnrollmentStore) TouchAgentByAPIKeyID(keyID, version, localIP string) error {
 	if keyID == "" {
 		return nil
 	}
@@ -235,6 +236,9 @@ func (es *EnrollmentStore) TouchAgentByAPIKeyID(keyID, version string) error {
 			es.data.Agents[i].LastSeen = &now
 			if version != "" {
 				es.data.Agents[i].PMGVersion = version
+			}
+			if localIP != "" {
+				es.data.Agents[i].LocalIP = localIP
 			}
 			return es.save()
 		}

@@ -108,6 +108,7 @@ type EndpointInfo struct {
 	OS                string    `json:"os"`
 	Arch              string    `json:"arch"`
 	RemoteIP          string    `json:"remote_ip,omitempty"`
+	LocalIP           string    `json:"local_ip,omitempty"`
 	LastSeen          time.Time `json:"last_seen"`
 	Sessions          int       `json:"sessions"`
 	ToolVersion       string    `json:"tool_version"`
@@ -583,6 +584,7 @@ func MergeAgentEndpoints(endpoints []EndpointInfo, agents []Agent) []EndpointInf
 			OS:          a.OS,
 			Arch:        a.Arch,
 			RemoteIP:    a.RemoteIP,
+			LocalIP:     a.LocalIP,
 			LastSeen:    lastSeen,
 			ToolVersion: a.PMGVersion,
 		})

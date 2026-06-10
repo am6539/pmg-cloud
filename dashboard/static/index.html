@@ -648,7 +648,7 @@ async function renderEndpoints(){
   '<td class="trunc mono" title="'+h(ep.endpoint_id)+'" style="font-size:11px">'+trunc(ep.endpoint_id,18)+'</td>'+
   '<td>'+(ep.label?'<strong>'+h(ep.label)+'</strong><div style="font-size:11px;color:var(--tx4)">'+h(ep.hostname||'')+'</div>':(ep.hostname?h(ep.hostname):'—'))+'</td>'+
   '<td>'+bdg(ep.os||'—','gray')+'</td>'+
-  '<td class="mono" style="font-size:12px">'+(ep.remote_ip?h(ep.remote_ip):'—')+'</td>'+
+  '<td class="mono" style="font-size:11px">'+(ep.local_ip?'<div>'+h(ep.local_ip)+'</div>':'')+(ep.remote_ip?'<div style="color:var(--tx4)">'+h(ep.remote_ip)+'</div>':'—')+'</td>'+
   '<td>'+(ep.tool_version?h(ep.tool_version):'—')+'</td>'+
   '<td>'+fmt(ep.sessions)+'</td>'+
   '<td>'+fmt(ep.total_packages)+'</td>'+
@@ -684,7 +684,8 @@ function openEpDrawer(i){
     document.getElementById('drawer-body').innerHTML=
 '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px;font-size:13px">'+
 '<div><div class="lbl">Status</div><div>'+bdg(epStatus(ep.last_seen).label,epStatus(ep.last_seen).label==='Online'?'green':epStatus(ep.last_seen).label==='Away'?'yellow':'gray')+'</div></div>'+
-'<div><div class="lbl">IP Address</div><div class="mono" style="font-size:12px">'+(ep.remote_ip?h(ep.remote_ip):'—')+'</div></div>'+
+'<div><div class="lbl">Local IP</div><div class="mono" style="font-size:12px">'+(ep.local_ip?h(ep.local_ip):'—')+'</div></div>'+
+'<div><div class="lbl">Public IP</div><div class="mono" style="font-size:12px">'+(ep.remote_ip?h(ep.remote_ip):'—')+'</div></div>'+
 '<div><div class="lbl">Endpoint ID</div><div class="mono" style="font-size:10px;word-break:break-all">'+h(ep.endpoint_id)+'</div></div>'+
 '<div><div class="lbl">Machine ID</div><div class="mono" style="font-size:11px">'+(ep.machine_id?h(ep.machine_id):'—')+'</div></div>'+
 '<div><div class="lbl">OS / Arch</div><div>'+(ep.os?h(ep.os):'—')+' / '+(ep.arch?h(ep.arch):'—')+'</div></div>'+
