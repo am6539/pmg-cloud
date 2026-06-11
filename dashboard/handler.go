@@ -1169,7 +1169,7 @@ func Handler(dataDir string, deps HandlerDeps) http.Handler {
 				http.Error(w, "invalid request: token and hostname are required", http.StatusBadRequest)
 				return
 			}
-			if len(req.Token) > 128 || len(req.Hostname) > 253 || len(req.OS) > 64 || len(req.Arch) > 32 || len(req.PMGVersion) > 32 {
+			if len(req.Token) > 128 || len(req.Hostname) > 253 || len(req.OS) > 64 || len(req.Arch) > 32 || len(req.PMGVersion) > 128 || len(req.LocalIP) > 45 {
 				http.Error(w, "invalid request: field too long", http.StatusBadRequest)
 				return
 			}
