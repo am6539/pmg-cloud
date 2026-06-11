@@ -92,17 +92,6 @@ Write-Host 'Enrolling with PMG Cloud...'
 Write-Host 'Setting up PMG...'
 & $bin setup install
 
-# Create scheduled task for heartbeat (every 5 minutes)
-Write-Host 'Setting up heartbeat scheduler...'
-$action = New-ScheduledTaskAction -Execute "$bin" -Argument "cloud heartbeat"
-$trigger = New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(1) -RepetitionInterval (New-TimeSpan -Minutes 5)
-$principal = New-ScheduledTaskPrincipal -UserId $env:USERNAME -LogonType S4U
-$existingTask = Get-ScheduledTask -TaskName "PMG Heartbeat" -ErrorAction SilentlyContinue
-if ($existingTask) {
-  Unregister-ScheduledTask -TaskName "PMG Heartbeat" -Confirm:$false
-}
-Register-ScheduledTask -TaskName "PMG Heartbeat" -Action $action -Trigger $trigger -Principal $principal -Description "Send heartbeat to PMG Cloud every 5 minutes" | Out-Null
-
 # Refresh PATH in the current session from registry so shims work immediately
 # without needing to restart the terminal.
 $machinePath = [Environment]::GetEnvironmentVariable('PATH', 'Machine')
@@ -111,7 +100,6 @@ $env:PATH    = ($machinePath + ';' + $userPath) -replace ';;+', ';'
 
 Write-Host ''
 Write-Host 'Done! PMG is installed, enrolled, and active.'
-Write-Host 'Heartbeat will run automatically every 5 minutes.'
 `
 
 const installScriptTemplate = `#!/bin/sh
@@ -176,14 +164,8 @@ echo "Enrolling with PMG Cloud..."
 echo "Wiring PMG into your shell..."
 "${INSTALL_DIR}/pmg" setup install
 
-# Setup cron for heartbeat (every 5 minutes)
-echo "Setting up heartbeat cron job..."
-CRON_COMMAND="*/5 * * * * ${INSTALL_DIR}/pmg cloud heartbeat >/dev/null 2>&1"
-(crontab -l 2>/dev/null | grep -v "pmg cloud heartbeat"; echo "$CRON_COMMAND") | crontab -
-
 echo ""
 echo "Done! PMG is installed, enrolled, and active."
-echo "Heartbeat will run automatically every 5 minutes via cron."
 echo "Restart your terminal (or run: source ~/.bashrc) for shell integration to take effect."
 `
 
