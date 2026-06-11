@@ -176,8 +176,14 @@ echo "Enrolling with PMG Cloud..."
 echo "Wiring PMG into your shell..."
 "${INSTALL_DIR}/pmg" setup install
 
+# Setup cron for heartbeat (every 5 minutes)
+echo "Setting up heartbeat cron job..."
+CRON_COMMAND="*/5 * * * * ${INSTALL_DIR}/pmg cloud heartbeat >/dev/null 2>&1"
+(crontab -l 2>/dev/null | grep -v "pmg cloud heartbeat"; echo "$CRON_COMMAND") | crontab -
+
 echo ""
 echo "Done! PMG is installed, enrolled, and active."
+echo "Heartbeat will run automatically every 5 minutes via cron."
 echo "Restart your terminal (or run: source ~/.bashrc) for shell integration to take effect."
 `
 
