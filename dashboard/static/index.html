@@ -106,11 +106,28 @@ tr:hover td{background:var(--hv)}
 .modal-footer{display:flex;gap:8px;justify-content:flex-end;margin-top:17px;padding-top:15px;border-top:1px solid var(--bd)}
 /* Drawer */
 .drawer-bg{position:fixed;inset:0;z-index:99;background:rgba(0,0,0,.35);backdrop-filter:blur(1px)}
-.drawer{position:fixed;right:0;top:0;bottom:0;width:490px;max-width:95vw;background:var(--sf);border-left:1px solid var(--bd);box-shadow:var(--sh2);z-index:100;display:flex;flex-direction:column;transform:translateX(100%);transition:transform .27s cubic-bezier(.4,0,.2,1)}
+.drawer{position:fixed;right:0;top:0;bottom:0;width:580px;max-width:98vw;background:var(--sf);border-left:1px solid var(--bd);box-shadow:var(--sh2);z-index:100;display:flex;flex-direction:column;transform:translateX(100%);transition:transform .27s cubic-bezier(.4,0,.2,1)}
 .drawer.open{transform:translateX(0)}
-.drawer-hdr{padding:16px 18px;border-bottom:1px solid var(--bd);display:flex;justify-content:space-between;align-items:center;flex-shrink:0}
-.drawer-hdr h2{font-size:15px;font-weight:600;letter-spacing:-.2px}
+.drawer-hdr{padding:14px 18px;border-bottom:1px solid var(--bd);display:flex;justify-content:space-between;align-items:flex-start;flex-shrink:0;gap:10px}
+.drawer-hdr-left{display:flex;flex-direction:column;gap:3px;min-width:0}
+.drawer-hdr h2{font-size:15px;font-weight:600;letter-spacing:-.2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.drawer-hdr-meta{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.drawer-tabs{display:flex;border-bottom:1px solid var(--bd);flex-shrink:0;padding:0 18px;gap:0;overflow-x:auto;scrollbar-width:none}
+.drawer-tabs::-webkit-scrollbar{display:none}
+.drawer-tab{padding:9px 16px;border:none;background:none;cursor:pointer;font-size:12.5px;color:var(--tx3);border-bottom:2px solid transparent;margin-bottom:-1px;font-weight:500;transition:color .12s,border-color .12s;white-space:nowrap;flex-shrink:0}
+.drawer-tab:hover{color:var(--tx2)}
+.drawer-tab.active{color:var(--pr);border-bottom-color:var(--pr);font-weight:600}
 .drawer-body{padding:18px;overflow-y:auto;flex:1}
+.ep-info-grid{display:grid;grid-template-columns:1fr 1fr;gap:0;margin-bottom:0}
+.ep-info-cell{padding:10px 12px;border-bottom:1px solid var(--bd);border-right:1px solid var(--bd)}
+.ep-info-cell:nth-child(2n){border-right:none}
+.ep-info-cell:last-child,.ep-info-cell:nth-last-child(2):nth-child(2n+1){border-bottom:none}
+.ep-stat-row{display:flex;gap:10px;margin-bottom:18px}
+.ep-stat{flex:1;background:var(--hv2);border:1px solid var(--bd);border-radius:8px;padding:12px 14px;text-align:center}
+.ep-stat-val{font-size:22px;font-weight:700;line-height:1.1}
+.ep-stat-lbl{font-size:10.5px;color:var(--tx3);font-weight:600;text-transform:uppercase;letter-spacing:.4px;margin-top:3px}
+.ep-event-item{padding:10px 0;border-bottom:1px solid var(--bd);font-size:12px}
+.ep-event-item:last-child{border-bottom:none}
 /* Tabs */
 .tabs{display:flex;border-bottom:1px solid var(--bd);margin-bottom:15px;gap:2px}
 .tab{padding:8px 16px;border:none;background:none;cursor:pointer;font-size:13px;color:var(--tx3);border-bottom:2px solid transparent;margin-bottom:-1px;font-weight:500;transition:color .12s;border-radius:6px 6px 0 0}
@@ -228,9 +245,13 @@ code{background:var(--hv);padding:2px 6px;border-radius:4px;font-family:'JetBrai
 <div class="drawer-bg" id="drawer-bg" style="display:none" onclick="closeDrawer()"></div>
 <div class="drawer" id="drawer">
   <div class="drawer-hdr">
-    <h2 id="drawer-title">Details</h2>
-    <button class="icon-btn" onclick="closeDrawer()">&#x2715;</button>
+    <div class="drawer-hdr-left">
+      <h2 id="drawer-title">Details</h2>
+      <div class="drawer-hdr-meta" id="drawer-meta"></div>
+    </div>
+    <button class="icon-btn" onclick="closeDrawer()" style="flex-shrink:0">&#x2715;</button>
   </div>
+  <div class="drawer-tabs" id="drawer-tabs"></div>
   <div class="drawer-body" id="drawer-body"></div>
 </div>
 
@@ -674,37 +695,92 @@ function versionCompliance(eps){
   }).join('')+'</tbody></table></div></div>';
 }
 
+var _drawerEp=null,_drawerTab='overview',_drawerEvents=[];
 function openEpDrawer(i){
   var ep=epList[i];if(!ep)return;
-  document.getElementById('drawer-title').textContent=ep.hostname||ep.endpoint_id;
+  _drawerEp=ep;_drawerTab='overview';_drawerEvents=[];
+  var st=epStatus(ep.last_seen);
+  document.getElementById('drawer-title').textContent=ep.label||ep.hostname||ep.endpoint_id;
+  document.getElementById('drawer-meta').innerHTML=
+    '<span class="dot '+st.dot+'" style="margin-right:4px"></span>'+
+    '<span style="font-size:11px;font-weight:600;color:'+st.color+'">'+st.label+'</span>'+
+    (ep.tool_version?' <span style="font-size:11px;color:var(--tx4)">·</span> <code style="font-size:10px">'+h(ep.tool_version)+'</code>':'');
+  document.getElementById('drawer-tabs').innerHTML=
+    '<button class="drawer-tab active" onclick="switchEpTab(\'overview\')">Overview</button>'+
+    '<button class="drawer-tab" onclick="switchEpTab(\'events\')">Events</button>'+
+    '<button class="drawer-tab" onclick="switchEpTab(\'packages\')">Packages</button>';
   document.getElementById('drawer-body').innerHTML='<div class="empty"><span class="spin">&#8635;</span> Loading&#8230;</div>';
   document.getElementById('drawer-bg').style.display='block';
   setTimeout(function(){document.getElementById('drawer').classList.add('open');},10);
   api('/api/endpoints/'+encodeURIComponent(ep.endpoint_id)+'/events').then(function(evs){
-    document.getElementById('drawer-body').innerHTML=
-'<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px;font-size:13px">'+
-'<div><div class="lbl">Status</div><div>'+bdg(epStatus(ep.last_seen).label,epStatus(ep.last_seen).label==='Online'?'green':epStatus(ep.last_seen).label==='Away'?'yellow':'gray')+'</div></div>'+
-'<div><div class="lbl">Local IP</div><div class="mono" style="font-size:12px">'+(ep.local_ip?h(ep.local_ip):'—')+'</div></div>'+
-'<div><div class="lbl">Public IP</div><div class="mono" style="font-size:12px">'+(ep.remote_ip?h(ep.remote_ip):'—')+'</div></div>'+
-'<div><div class="lbl">Endpoint ID</div><div class="mono" style="font-size:10px;word-break:break-all">'+h(ep.endpoint_id)+'</div></div>'+
-'<div><div class="lbl">Machine ID</div><div class="mono" style="font-size:11px">'+(ep.machine_id?h(ep.machine_id):'—')+'</div></div>'+
-'<div><div class="lbl">OS / Arch</div><div>'+(ep.os?h(ep.os):'—')+' / '+(ep.arch?h(ep.arch):'—')+'</div></div>'+
-'<div><div class="lbl">PMG Version</div><div>'+(ep.tool_version?h(ep.tool_version):'—')+'</div></div>'+
-'<div><div class="lbl">Sessions</div><div>'+fmt(ep.sessions)+'</div></div>'+
-'<div><div class="lbl">Last Seen</div><div style="font-size:12px">'+fmtDate(ep.last_seen)+'</div></div>'+
-'<div><div class="lbl">Total Packages</div><div>'+fmt(ep.total_packages)+'</div></div>'+
-'<div><div class="lbl">Blocked</div><div>'+((ep.blocked_packages||0)>0?bdg(fmt(ep.blocked_packages),'red'):bdg('0','green'))+'</div></div>'+
-'</div><hr>'+
-'<div style="font-size:13px;font-weight:600;margin-bottom:10px">Recent Events ('+evs.length+')</div>'+
-'<div style="overflow-y:auto;max-height:380px">'+(evs.length?evs.map(function(ev){
-  return'<div style="padding:8px 0;border-bottom:1px solid var(--bd);font-size:12px">'+
-  '<div class="flex" style="margin-bottom:3px">'+actionBdg(ev.action)+' '+ecoBdg(ev.ecosystem)+
-  ' <span style="color:var(--tx4)">'+fmtDate(ev.received_at)+'</span></div>'+
-  '<div style="color:var(--tx2)">'+(ev.package_name?h(ev.package_name):'—')+(ev.package_version?' <span style="color:var(--tx4)">v'+h(ev.package_version)+'</span>':'')+'</div></div>';
-}).join(''):'<div class="empty">No events</div>')+'</div>';
+    _drawerEvents=evs||[];
+    renderEpTab();
   }).catch(function(e){document.getElementById('drawer-body').innerHTML='<div class="empty">Error: '+h(e.message)+'</div>';});
 }
-function closeDrawer(){document.getElementById('drawer').classList.remove('open');document.getElementById('drawer-bg').style.display='none';}
+function switchEpTab(tab){
+  _drawerTab=tab;
+  document.querySelectorAll('.drawer-tab').forEach(function(el){el.classList.toggle('active',el.textContent.toLowerCase()===tab);});
+  renderEpTab();
+}
+function renderEpTab(){
+  var ep=_drawerEp;if(!ep)return;
+  var body=document.getElementById('drawer-body');
+  if(_drawerTab==='overview'){
+    body.innerHTML=
+    '<div class="ep-stat-row">'+
+    '<div class="ep-stat"><div class="ep-stat-val">'+fmt(ep.sessions)+'</div><div class="ep-stat-lbl">Sessions</div></div>'+
+    '<div class="ep-stat"><div class="ep-stat-val">'+fmt(ep.total_packages)+'</div><div class="ep-stat-lbl">Packages</div></div>'+
+    '<div class="ep-stat'+((ep.blocked_packages||0)>0?' danger':'')+'"><div class="ep-stat-val">'+fmt(ep.blocked_packages||0)+'</div><div class="ep-stat-lbl">Blocked</div></div>'+
+    '</div>'+
+    '<div class="ep-info-grid">'+
+    '<div class="ep-info-cell"><div class="lbl">Hostname</div><div style="font-size:13px;color:var(--tx2)">'+h(ep.hostname||'—')+'</div></div>'+
+    '<div class="ep-info-cell"><div class="lbl">Label</div><div style="font-size:13px;color:var(--tx2)">'+h(ep.label||'—')+'</div></div>'+
+    '<div class="ep-info-cell"><div class="lbl">Local IP</div><div class="mono" style="font-size:12px">'+(ep.local_ip?h(ep.local_ip):'—')+'</div></div>'+
+    '<div class="ep-info-cell"><div class="lbl">Public IP</div><div class="mono" style="font-size:12px">'+(ep.remote_ip?h(ep.remote_ip):'—')+'</div></div>'+
+    '<div class="ep-info-cell"><div class="lbl">OS / Arch</div><div style="font-size:12px">'+(ep.os?h(ep.os):'—')+' / '+(ep.arch?h(ep.arch):'—')+'</div></div>'+
+    '<div class="ep-info-cell"><div class="lbl">PMG Version</div><div style="font-size:12px">'+(ep.tool_version?h(ep.tool_version):'—')+'</div></div>'+
+    '<div class="ep-info-cell"><div class="lbl">Last Seen</div><div style="font-size:12px">'+fmtDate(ep.last_seen)+'</div></div>'+
+    '<div class="ep-info-cell"><div class="lbl">First Seen</div><div style="font-size:12px">'+fmtDate(ep.first_seen)+'</div></div>'+
+    '<div class="ep-info-cell" style="grid-column:1/-1"><div class="lbl">Endpoint ID</div><div class="mono" style="font-size:10px;word-break:break-all">'+h(ep.endpoint_id)+'</div></div>'+
+    '<div class="ep-info-cell" style="grid-column:1/-1"><div class="lbl">Machine ID</div><div class="mono" style="font-size:11px;word-break:break-all">'+(ep.machine_id?h(ep.machine_id):'—')+'</div></div>'+
+    '</div>';
+  }else if(_drawerTab==='events'){
+    var evs=_drawerEvents;
+    body.innerHTML=
+    '<div style="font-size:13px;font-weight:600;margin-bottom:12px;color:var(--tx2)">Recent Events ('+evs.length+')</div>'+
+    (evs.length?evs.map(function(ev){
+      return'<div class="ep-event-item">'+
+      '<div class="flex" style="margin-bottom:4px;gap:6px">'+actionBdg(ev.action)+ecoBdg(ev.ecosystem)+
+      '<span style="font-size:11px;color:var(--tx4);margin-left:auto">'+fmtDate(ev.received_at)+'</span></div>'+
+      '<div style="font-size:13px;color:var(--tx)">'+h(ev.package_name||'—')+
+      (ev.package_version?' <span style="font-size:11px;color:var(--tx4)">v'+h(ev.package_version)+'</span>':'')+
+      '</div></div>';
+    }).join(''):'<div class="empty">No events</div>');
+  }else if(_drawerTab==='packages'){
+    var pkgMap={};
+    _drawerEvents.forEach(function(ev){
+      if(!ev.package_name)return;
+      var k=ev.package_name;
+      if(!pkgMap[k])pkgMap[k]={name:k,ecosystem:ev.ecosystem,count:0,blocked:0};
+      pkgMap[k].count++;
+      if(ev.action==='block'||ev.action==='block_install')pkgMap[k].blocked++;
+    });
+    var pkgs=Object.values(pkgMap).sort(function(a,b){return b.count-a.count;});
+    body.innerHTML=
+    '<div style="font-size:13px;font-weight:600;margin-bottom:12px;color:var(--tx2)">Packages ('+pkgs.length+')</div>'+
+    '<div class="tbl-wrap"><table><thead><tr><th>Package</th><th>Eco</th><th>Count</th><th>Blocked</th></tr></thead><tbody>'+
+    (pkgs.length?pkgs.map(function(p){
+      return'<tr><td><strong>'+h(p.name)+'</strong></td><td>'+ecoBdg(p.ecosystem)+'</td><td>'+fmt(p.count)+'</td>'+
+      '<td>'+(p.blocked>0?bdg(fmt(p.blocked),'red'):'0')+'</td></tr>';
+    }).join(''):'<tr><td colspan="4" class="empty">No packages</td></tr>')+
+    '</tbody></table></div>';
+  }
+}
+function closeDrawer(){
+  document.getElementById('drawer').classList.remove('open');
+  document.getElementById('drawer-bg').style.display='none';
+  _drawerEp=null;_drawerTab='overview';_drawerEvents=[];
+}
 
 /* ---- PACKAGES ---- */
 var _pkgs=[];
