@@ -561,6 +561,12 @@ func MergeAgentEndpoints(endpoints []EndpointInfo, agents []Agent) []EndpointInf
 		if a.Label != "" {
 			endpoints[i].Label = a.Label
 		}
+		if a.LocalIP != "" {
+			endpoints[i].LocalIP = a.LocalIP
+		}
+		if a.RemoteIP != "" {
+			endpoints[i].RemoteIP = a.RemoteIP
+		}
 		// Heartbeat keeps Agent.LastSeen fresh even without a new install event,
 		// so use it when newer to keep the Endpoints online/offline status in sync
 		// with the Agents tab.
