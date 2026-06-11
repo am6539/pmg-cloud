@@ -1060,7 +1060,7 @@ missingBanner+
 '<div class="sec-title" style="margin:0">Enrolled Agents <small>'+agents.length+' total</small></div>'+
 '<button class="btn btn-primary" onclick="openDeployWizard()">&#43; Deploy New Agent</button></div>':
 '<div class="sec-title">Enrolled Agents <small>'+agents.length+' total</small></div>')+
-'<div class="tbl-wrap"><table><thead><tr><th>Status</th><th>Device</th><th>OS / Arch</th><th>Group</th><th>Enrolled</th><th>Last Seen</th><th></th></tr></thead><tbody>'+
+'<div class="tbl-wrap"><table><thead><tr><th>Status</th><th>Device</th><th>OS / Arch</th><th>IP Address</th><th>Group</th><th>Enrolled</th><th>Last Seen</th><th></th></tr></thead><tbody>'+
 (agents.length?agents.map(function(a){
   var grp=groups.find(function(g){return g.id===a.group_id;})||null;
   var age=a.last_seen?(Date.now()-new Date(a.last_seen).getTime()):Infinity;
@@ -1073,6 +1073,7 @@ missingBanner+
   return'<tr>'+statusCell+
   '<td>'+deviceCell+'</td>'+
   '<td style="font-size:12px;color:var(--tx3)">'+h(a.os||'')+(a.arch?' / '+h(a.arch):'')+(a.pmg_version?' &nbsp;<code>v'+h(a.pmg_version)+'</code>':'')+'</td>'+
+  '<td class="mono" style="font-size:11px">'+(a.local_ip?'<div>'+h(a.local_ip)+'</div>':'')+(a.remote_ip?'<div style="color:var(--tx4)">'+h(a.remote_ip)+'</div>':'—')+'</td>'+
   '<td>'+(grp?bdg(grp.name,'teal'):'<span style="color:var(--tx4)">unassigned</span>')+'</td>'+
   '<td style="font-size:12px;color:var(--tx3)">'+fmtDate(a.enrolled_at)+'</td>'+
   '<td style="font-size:12px;color:'+(st.label==='Offline'?'var(--dn)':'var(--tx3)')+'">'+fmtDate(a.last_seen)+'</td>'+
@@ -1082,7 +1083,7 @@ missingBanner+
     '<button class="btn btn-sm btn-ghost" onclick="openAssignGroup(\''+h(a.id)+'\',\''+h(a.group_id||'')+'\')">Group</button>'+
     '<button class="btn btn-sm btn-danger" onclick="removeAgent(\''+h(a.id)+'\',\''+h(a.hostname)+'\')">Remove</button>':'')+
   '</td></tr>';
-}).join(''):'<tr><td colspan="7" class="empty">No agents enrolled yet.</td></tr>')+
+}).join(''):'<tr><td colspan="8" class="empty">No agents enrolled yet.</td></tr>')+
 '</tbody></table></div>'+
 (S.me&&S.me.role==='admin'?
 '<div class="sec-title" style="margin-top:18px">Enrollment Tokens'+
