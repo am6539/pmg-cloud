@@ -92,6 +92,17 @@ Write-Host 'Enrolling with PMG Cloud...'
 Write-Host 'Setting up PMG...'
 & $bin setup install
 
+# Create scheduled task for heartbeat (every 5 minutes)
+Write-Host 'Setting up heartbeat scheduler...'
+$action = New-ScheduledTaskAction -Execute "$bin" -Argument "cloud heartbeat"
+$trigger = New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(1) -RepetitionInterval (New-TimeSpan -Minutes 5)
+$principal = New-ScheduledTaskPrincipal -UserId $env:USERNAME -LogonType S4U
+$existingTask = Get-ScheduledTask -TaskName "PMG Heartbeat" -ErrorAction SilentlyContinue
+if ($existingTask) {
+  Unregister-ScheduledTask -TaskName "PMG Heartbeat" -Confirm:$false
+}
+Register-ScheduledTask -TaskName "PMG Heartbeat" -Action $action -Trigger $trigger -Principal $principal -Description "Send heartbeat to PMG Cloud every 5 minutes" | Out-Null
+
 # Refresh PATH in the current session from registry so shims work immediately
 # without needing to restart the terminal.
 $machinePath = [Environment]::GetEnvironmentVariable('PATH', 'Machine')
@@ -100,6 +111,7 @@ $env:PATH    = ($machinePath + ';' + $userPath) -replace ';;+', ';'
 
 Write-Host ''
 Write-Host 'Done! PMG is installed, enrolled, and active.'
+Write-Host 'Heartbeat will run automatically every 5 minutes.'
 `
 
 const installScriptTemplate = `#!/bin/sh
