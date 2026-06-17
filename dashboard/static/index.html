@@ -285,6 +285,12 @@ var S={page:'dashboard',group:'',days:30,from:'',to:'',useRange:false,evOffset:0
 
 document.addEventListener('DOMContentLoaded',function(){
   applyTheme();
+  var hashPage=location.hash.replace('#','');
+  if(PAGE_TITLES[hashPage]){
+    S.page=hashPage;
+    document.querySelectorAll('.nav-item').forEach(function(el){el.classList.toggle('active',el.dataset.page===hashPage);});
+    document.getElementById('page-title').textContent=PAGE_TITLES[hashPage];
+  }
   checkAuth().then(function(ok){
     if(!ok)return;
     initGroups().then(function(){
@@ -464,6 +470,7 @@ function buildQ(extra){
 var PAGE_TITLES={dashboard:'Overview',events:'Events',endpoints:'Endpoints',packages:'Packages',cicd:'CI / CD',malware:'Malware Feed',agents:'Agents',groups:'Groups',audit:'Audit Log',settings:'Settings'};
 function nav(page){
   S.page=page;S.evOffset=0;
+  history.replaceState(null,'','#'+page);
   document.querySelectorAll('.nav-item').forEach(function(el){el.classList.toggle('active',el.dataset.page===page);});
   document.getElementById('page-title').textContent=PAGE_TITLES[page]||page;
   loadPage();
