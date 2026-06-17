@@ -9,9 +9,6 @@ services:
       - ./certs:/certs:ro
     environment:
       - PMG_CLOUD_API_KEYS=changeme
-      # Set to your public domain — gRPC is muxed on port 8080 alongside the dashboard.
-      # Cloudflare Tunnel forwards HTTP/2 so gRPC reaches agents via host:443 with valid TLS.
-      # Example: your-domain.com:443
-      - PMG_CLOUD_GRPC_PUBLIC_ADDR=your-domain.com:443
-    # Disable dedicated gRPC port (--addr=); gRPC is served on --http-addr via h2c mux.
-    command: ["--addr=", "--data-dir=/data", "--http-addr=:8080"]
+    # gRPC is muxed on --http-addr via h2c. Nginx terminates TLS and forwards to :8080.
+    # --grpc-public-addr tells enrolling agents to connect back via the public domain.
+    command: ["--addr=", "--data-dir=/data", "--http-addr=:8080", "--grpc-public-addr=vgpmg.ovp.vn:443"]
