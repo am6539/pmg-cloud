@@ -219,12 +219,12 @@ func (es *EnrollmentStore) SetAgentLabel(agentID, label string) error {
 	return fmt.Errorf("agent not found")
 }
 
-// TouchAgentByAPIKeyID updates the LastSeen timestamp (and PMGVersion when a
-// non-empty version is supplied) of the agent whose APIKeyID matches keyID.
+// TouchAgentByAPIKeyID updates the LastSeen timestamp (and PMGVersion, LocalIP,
+// RemoteIP when non-empty) of the agent whose APIKeyID matches keyID.
 // Called on every successful sync and heartbeat so the Agents tab reflects
 // live activity and the currently-running PMG version. Returns nil (not an
 // error) if no agent matches, since a touch miss is non-fatal.
-func (es *EnrollmentStore) TouchAgentByAPIKeyID(keyID, version, localIP string) error {
+func (es *EnrollmentStore) TouchAgentByAPIKeyID(keyID, version, localIP, remoteIP string) error {
 	if keyID == "" {
 		return nil
 	}
@@ -239,6 +239,9 @@ func (es *EnrollmentStore) TouchAgentByAPIKeyID(keyID, version, localIP string) 
 			}
 			if localIP != "" {
 				es.data.Agents[i].LocalIP = localIP
+			}
+			if remoteIP != "" {
+				es.data.Agents[i].RemoteIP = remoteIP
 			}
 			return es.save()
 		}

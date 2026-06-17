@@ -1297,7 +1297,7 @@ func Handler(dataDir string, deps HandlerDeps) http.Handler {
 			}
 			_ = json.NewDecoder(r.Body).Decode(&req)
 			if deps.Enrollment != nil {
-				if err := enrollment.TouchAgentByAPIKeyID(keyID, req.Version, req.LocalIP); err != nil {
+				if err := enrollment.TouchAgentByAPIKeyID(keyID, req.Version, req.LocalIP, realIP(r)); err != nil {
 					http.Error(w, "internal error", http.StatusInternalServerError)
 					return
 				}
