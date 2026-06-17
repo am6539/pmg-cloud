@@ -435,7 +435,7 @@ async function createUserAccount(){
 }
 
 async function toggleUserRole(id,currentRole){
-  var newRole=currentRole==='admin'?'viewer':'admin';
+  var newRole=currentRole==='admin'?'editor':currentRole==='editor'?'viewer':'admin';
   try{
     var r=await fetch('/api/users/'+id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({role:newRole})});
     if(!r.ok){var d=await r.json().catch(function(){return{};});showToast(d.error||'Error','error');return;}
@@ -1469,11 +1469,11 @@ async function renderSettings(){
 (users.length?users.map(function(u){
   return'<tr>'+
   '<td><strong>'+h(u.username)+'</strong>'+(u.must_change_password?' <span style="font-size:10px;color:var(--wn)">must change pwd</span>':'')+'</td>'+
-  '<td>'+bdg(u.role==='admin'?'Admin':'Viewer',u.role==='admin'?'teal':'gray')+'</td>'+
+  '<td>'+bdg(u.role==='admin'?'Admin':u.role==='editor'?'Editor':'Viewer',u.role==='admin'?'teal':u.role==='editor'?'blue':'gray')+'</td>'+
   '<td style="font-size:12px;color:var(--tx3)">'+fmtDate(u.created_at)+'</td>'+
   '<td class="flex" style="gap:4px">'+
   '<button class="btn btn-sm btn-ghost" onclick="toggleUserRole(\''+h(u.id)+'\',\''+h(u.role)+'\')">'+
-  (u.role==='admin'?'Make Viewer':'Make Admin')+'</button>'+
+  (u.role==='admin'?'Make Editor':u.role==='editor'?'Make Viewer':'Make Admin')+'</button>'+
   '<button class="btn btn-sm btn-danger"'+(S.me&&u.id===S.me.id?' disabled':'')+' onclick="deleteUser(\''+h(u.id)+'\',\''+h(u.username)+'\')">Delete</button>'+
   '</td></tr>';
 }).join(''):'<tr><td colspan="4" class="empty">No users</td></tr>')+
