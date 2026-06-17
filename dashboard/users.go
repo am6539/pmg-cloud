@@ -14,6 +14,7 @@ import (
 
 const (
 	RoleAdmin  = "admin"
+	RoleEditor = "editor"
 	RoleViewer = "viewer"
 )
 
@@ -190,8 +191,8 @@ func (us *UserStore) CreateUser(username, password, role string) (DashUser, erro
 	if password == "" {
 		return DashUser{}, fmt.Errorf("password required")
 	}
-	if role != RoleAdmin && role != RoleViewer {
-		return DashUser{}, fmt.Errorf("role must be admin or viewer")
+	if role != RoleAdmin && role != RoleEditor && role != RoleViewer {
+		return DashUser{}, fmt.Errorf("role must be admin, editor, or viewer")
 	}
 	us.mu.Lock()
 	defer us.mu.Unlock()
@@ -226,8 +227,8 @@ func (us *UserStore) UpdatePassword(id, newPassword string) error {
 
 // UpdateRole changes a user's role.
 func (us *UserStore) UpdateRole(id, role string) error {
-	if role != RoleAdmin && role != RoleViewer {
-		return fmt.Errorf("role must be admin or viewer")
+	if role != RoleAdmin && role != RoleEditor && role != RoleViewer {
+		return fmt.Errorf("role must be admin, editor, or viewer")
 	}
 	us.mu.Lock()
 	defer us.mu.Unlock()

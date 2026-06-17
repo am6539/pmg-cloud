@@ -350,7 +350,8 @@ function updateSidebarUser(){
   if(!S.me)return;
   var un=document.getElementById('sb-username');var ur=document.getElementById('sb-role');var ub=document.getElementById('sb-user-bar');
   if(un)un.textContent=S.me.username;
-  if(ur)ur.textContent=S.me.role==='admin'?'Admin':'Viewer';
+  var roleText=S.me.role==='admin'?'Admin':S.me.role==='editor'?'Editor':'Viewer';
+  if(ur)ur.textContent=roleText;
   if(ub)ub.style.display='block';
   if(S.me.must_change_password)setTimeout(showChangePwd,300);
 }
@@ -415,7 +416,7 @@ function openAddUser(){
     '<div class="modal-title">Add User <button class="icon-btn" onclick="closeModal()">&#x2715;</button></div>'+
     '<div class="fg"><label class="lbl">Username</label><input class="input" id="nu-user"></div>'+
     '<div class="fg"><label class="lbl">Password</label><input class="input" type="password" id="nu-pass"></div>'+
-    '<div class="fg"><label class="lbl">Role</label><select class="input" id="nu-role"><option value="viewer">Viewer</option><option value="admin">Admin</option></select></div>'+
+    '<div class="fg"><label class="lbl">Role</label><select class="input" id="nu-role"><option value="viewer">Viewer</option><option value="editor">Editor</option><option value="admin">Admin</option></select></div>'+
     '<div class="modal-footer"><button class="btn btn-ghost" onclick="closeModal()">Cancel</button><button class="btn btn-primary" onclick="createUserAccount()">Create</button></div>'
   );
   setTimeout(function(){var el=document.getElementById('nu-user');if(el)el.focus();},80);
@@ -1085,8 +1086,9 @@ missingBanner+
   '<td style="font-size:12px;color:var(--tx3)">'+fmtDate(a.enrolled_at)+'</td>'+
   '<td style="font-size:12px;color:'+(st.label==='Offline'?'var(--dn)':'var(--tx3)')+'">'+fmtDate(a.last_seen)+'</td>'+
   '<td class="flex" style="gap:4px">'+
+  (S.me&&(S.me.role==='admin'||S.me.role==='editor')?
+    '<button class="btn btn-sm btn-ghost" onclick="renameAgent(\''+h(a.id)+'\',\''+h(a.label||'')+'\')">Rename</button>':'')+
   (S.me&&S.me.role==='admin'?
-    '<button class="btn btn-sm btn-ghost" onclick="renameAgent(\''+h(a.id)+'\',\''+h(a.label||'')+'\')">Rename</button>'+
     '<button class="btn btn-sm btn-ghost" onclick="openAssignGroup(\''+h(a.id)+'\',\''+h(a.group_id||'')+'\')">Group</button>'+
     '<button class="btn btn-sm btn-danger" onclick="removeAgent(\''+h(a.id)+'\',\''+h(a.hostname)+'\')">Remove</button>':'')+
   '</td></tr>';

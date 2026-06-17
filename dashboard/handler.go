@@ -1318,14 +1318,14 @@ func Handler(dataDir string, deps HandlerDeps) http.Handler {
 			writeJSON(w, resp)
 		})
 
-		// GET /api/agents — admin only
+		// GET /api/agents — admin and editor only
 		mux.HandleFunc("/api/agents", func(w http.ResponseWriter, r *http.Request) {
 			s, ok := sessionFromContext(r)
 			if !ok {
 				http.Error(w, `{"error":"unauthorized"}`, http.StatusUnauthorized)
 				return
 			}
-			if s.Role != RoleAdmin {
+			if s.Role != RoleAdmin && s.Role != RoleEditor {
 				http.Error(w, `{"error":"forbidden"}`, http.StatusForbidden)
 				return
 			}
@@ -1336,14 +1336,15 @@ func Handler(dataDir string, deps HandlerDeps) http.Handler {
 			writeJSON(w, enrollment.ListAgents())
 		})
 
-		// PUT/DELETE /api/agents/{id} — admin only
+		// PUT /api/agents/{id} — editor and admin (editor can only edit label)
+		// DELETE /api/agents/{id} — admin only
 		mux.HandleFunc("/api/agents/", func(w http.ResponseWriter, r *http.Request) {
 			s, ok := sessionFromContext(r)
 			if !ok {
 				http.Error(w, `{"error":"unauthorized"}`, http.StatusUnauthorized)
 				return
 			}
-			if s.Role != RoleAdmin {
+			if s.Role != RoleAdmin && s.Role != RoleEditor {
 				http.Error(w, `{"error":"forbidden"}`, http.StatusForbidden)
 				return
 			}
@@ -1362,6 +1363,13 @@ func Handler(dataDir string, deps HandlerDeps) http.Handler {
 				if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 					http.Error(w, "invalid JSON", http.StatusBadRequest)
 					return
+				}
+				// Editor can only edit label, not group
+				if s.Role == RoleEditor {
+					if (body.GroupID != nil && *body.GroupID != "") || body.RemoveGroup {
+						http.Error(w, `{"error":"editors cannot change agent groups"}`, http.StatusForbidden)
+						return
+					}
 				}
 				// Group and label are independent: apply only the fields present
 				// so a label edit does not clear the group and vice versa.
@@ -1397,6 +1405,11 @@ func Handler(dataDir string, deps HandlerDeps) http.Handler {
 				}
 				writeJSON(w, map[string]bool{"ok": true})
 			case http.MethodDelete:
+				// Only admin can delete agents
+				if s.Role != RoleAdmin {
+					http.Error(w, `{"error":"only admins can delete agents"}`, http.StatusForbidden)
+					return
+				}
 				if err := enrollment.RemoveAgent(agentID); err != nil {
 					http.Error(w, err.Error(), http.StatusNotFound)
 					return
