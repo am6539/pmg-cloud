@@ -342,9 +342,9 @@ func Handler(dataDir string, deps HandlerDeps) http.Handler {
 			return
 		}
 		events = filterByGroup(events, r.URL.Query().Get("group_id"))
-		list := EndpointList(events)
+		var list []EndpointInfo
 		if deps.Enrollment != nil {
-			list = MergeAgentEndpoints(list, deps.Enrollment.ListAllAgents())
+			list = MergeAgentEndpoints(deps.Enrollment.ListAllAgents(), events)
 		}
 		if r.URL.Query().Get("format") == "csv" {
 			writeEndpointsCSV(w, list)
@@ -366,6 +366,36 @@ func Handler(dataDir string, deps HandlerDeps) http.Handler {
 			http.NotFound(w, r)
 			return
 		}
+
+		// DELETE /api/endpoints/{id}/events - admin only, delete events for removed agent
+		if r.Method == http.MethodDelete {
+			s, ok := sessionFromContext(r)
+			if !ok || s.Role != RoleAdmin {
+				http.Error(w, `{"error":"forbidden"}`, http.StatusForbidden)
+				return
+			}
+			// Check if agent exists and is removed
+			if deps.Enrollment != nil {
+				agent, found := deps.Enrollment.GetAgentByID(endpointID)
+				if !found {
+					http.Error(w, `{"error":"agent not found"}`, http.StatusNotFound)
+					return
+				}
+				if !agent.Removed {
+					http.Error(w, `{"error":"cannot delete events for active agent"}`, http.StatusBadRequest)
+					return
+				}
+			}
+			// Delete events for this endpoint
+			if err := reader.DeleteEventsByEndpointID(dataDir, endpointID); err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+			writeJSON(w, map[string]string{"status": "ok"})
+			return
+		}
+
+		// GET /api/endpoints/{id}/events
 		events, err := reader.LoadEvents(0)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -1875,21 +1905,20 @@ func writeEndpointsCSV(w http.ResponseWriter, list []EndpointInfo) {
 	w.Header().Set("Content-Disposition", `attachment; filename="endpoints.csv"`)
 	cw := csv.NewWriter(w)
 	_ = cw.Write([]string{
-		"endpoint_id", "machine_id", "hostname", "os", "arch",
+		"endpoint_id", "hostname", "os", "arch",
 		"last_seen", "sessions", "tool_version", "total_packages", "blocked_packages",
 	})
 	for _, ep := range list {
 		_ = cw.Write([]string{
 			ep.EndpointID,
-			ep.MachineID,
 			ep.Hostname,
 			ep.OS,
 			ep.Arch,
 			ep.LastSeen.UTC().Format(time.RFC3339),
 			strconv.Itoa(ep.Sessions),
 			ep.ToolVersion,
-			strconv.FormatUint(ep.TotalPackages, 10),
-			strconv.FormatUint(ep.BlockedPackages, 10),
+			strconv.Itoa(ep.TotalPackages),
+			strconv.Itoa(ep.BlockedPackages),
 		})
 	}
 	cw.Flush()

@@ -207,6 +207,18 @@ func (es *EnrollmentStore) ListAllAgents() []Agent {
 	return out
 }
 
+// GetAgentByID returns an agent by ID (including removed agents) and a found flag.
+func (es *EnrollmentStore) GetAgentByID(id string) (Agent, bool) {
+	es.mu.RLock()
+	defer es.mu.RUnlock()
+	for _, a := range es.data.Agents {
+		if a.ID == id {
+			return a, true
+		}
+	}
+	return Agent{}, false
+}
+
 // AssignAgentGroup updates an agent's group assignment.
 func (es *EnrollmentStore) AssignAgentGroup(agentID, groupID string) error {
 	es.mu.Lock()

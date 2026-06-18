@@ -80,531 +80,340 @@ type Stats struct {
 	RecentEvents       []Event        `json:"recent_events"`
 }
 
-// PackageStat holds a name/count pair for top-N rankings.
-type PackageStat struct {
-	Name                 string     `json:"name"`
-	Ecosystem            string     `json:"ecosystem,omitempty"`
-	Count                int        `json:"count"`
-	BlockedCount         int        `json:"blocked_count,omitempty"`
-	MalwareCount         int        `json:"malware_count,omitempty"`
-	CooldownBlockedCount int        `json:"cooldown_blocked_count,omitempty"`
-	Versions             []string   `json:"versions,omitempty"`
-	LastSeen             *time.Time `json:"last_seen,omitempty"`
-}
-
-// PackageStats is returned by GET /api/package-stats.
-type PackageStats struct {
-	TopPackages   []PackageStat `json:"top_packages"`
-	TopEcosystems []PackageStat `json:"top_ecosystems"`
-	TopEndpoints  []PackageStat `json:"top_endpoints"`
-}
-
-// EndpointInfo represents a unique endpoint seen in events.
-type EndpointInfo struct {
-	EndpointID        string    `json:"endpoint_id"`
-	MachineID         string    `json:"machine_id"`
-	Hostname          string    `json:"hostname"`
-	Label             string    `json:"label,omitempty"` // admin-assigned friendly name from the enrolled agent
-	OS                string    `json:"os"`
-	Arch              string    `json:"arch"`
-	RemoteIP          string    `json:"remote_ip,omitempty"`
-	LocalIP           string    `json:"local_ip,omitempty"`
-	LastSeen          time.Time `json:"last_seen"`
-	Sessions          int       `json:"sessions"`
-	ToolVersion       string    `json:"tool_version"`
-	PackageManagers   []string  `json:"package_managers"`
-	FlowTypes         []string  `json:"flow_types"`
-	Removed           bool      `json:"removed,omitempty"` // true = agent was removed but events kept
-	TotalPackages     uint64    `json:"total_packages"`
-	BlockedPackages   uint64    `json:"blocked_packages"`
-	SandboxEnabled    *bool     `json:"sandbox_enabled"`
-	ParanoidMode      *bool     `json:"paranoid_mode"`
-	TransitiveEnabled *bool     `json:"transitive_enabled"`
-}
-
-// Reader reads events from JSONL files in a directory.
-// Results are cached for cacheTTL to avoid re-reading on every API request.
+// Reader provides cached event reads and aggregation methods.
 type Reader struct {
-	dataDir    string
-	mu         sync.Mutex
-	cache      map[int]cachedLoad
-	rangeCache map[string]cachedLoad
-}
-
-const cacheTTL = 5 * time.Second
-
-type cachedLoad struct {
-	events   []Event
-	cachedAt time.Time
+	dataDir   string
+	mu        sync.RWMutex
+	cached    []Event
+	cachedAt  time.Time
+	cacheTTL  time.Duration
+	cacheHash string // file mod hash
 }
 
 func NewReader(dataDir string) *Reader {
 	return &Reader{
-		dataDir:    dataDir,
-		cache:      make(map[int]cachedLoad),
-		rangeCache: make(map[string]cachedLoad),
+		dataDir:  dataDir,
+		cacheTTL: 10 * time.Second,
 	}
+}
+
+func (r *Reader) eventFilesInRange(from, to time.Time) ([]string, error) {
+	// from is inclusive, to is exclusive
+	paths := []string{}
+	for d := from; d.Before(to); d = d.AddDate(0, 0, 1) {
+		fname := d.Format("2006-01-02") + ".jsonl"
+		p := filepath.Join(r.dataDir, fname)
+		if _, err := os.Stat(p); err == nil {
+			paths = append(paths, p)
+		}
+	}
+	return paths, nil
+}
+
+func (r *Reader) fileHash(paths []string) (string, error) {
+	var sb strings.Builder
+	for _, p := range paths {
+		stat, err := os.Stat(p)
+		if err != nil {
+			continue
+		}
+		sb.WriteString(p)
+		sb.WriteString(":")
+		sb.WriteString(stat.ModTime().Format(time.RFC3339Nano))
+		sb.WriteString(";")
+	}
+	return sb.String(), nil
 }
 
 // LoadEvents reads all events from JSONL files within the last `days` days.
-// Pass days=0 to read all files. Results are cached for 5 seconds.
+// If days == 0, loads all available event files.
 func (r *Reader) LoadEvents(days int) ([]Event, error) {
-	r.mu.Lock()
-	if c, ok := r.cache[days]; ok && time.Since(c.cachedAt) < cacheTTL {
-		r.mu.Unlock()
-		return c.events, nil
+	now := time.Now().UTC()
+	var from time.Time
+	if days > 0 {
+		from = now.AddDate(0, 0, -days).Truncate(24 * time.Hour)
+	} else {
+		// all time → pick a date far in the past
+		from = time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC)
 	}
-	r.mu.Unlock()
-
-	events, err := r.loadFromDisk(days)
-	if err != nil {
-		return nil, err
-	}
-
-	r.mu.Lock()
-	r.cache[days] = cachedLoad{events: events, cachedAt: time.Now()}
-	r.mu.Unlock()
-	return events, nil
+	to := now.AddDate(0, 0, 1).Truncate(24 * time.Hour)
+	return r.loadEventsRange(from, to)
 }
 
 // LoadEventsRange loads events with received_at between from and to (inclusive).
-// Results are cached for 5 seconds keyed by the date range.
+// For custom date range queries (CSV export).
 func (r *Reader) LoadEventsRange(from, to time.Time) ([]Event, error) {
-	key := from.UTC().Format("20060102") + "-" + to.UTC().Format("20060102")
-
-	r.mu.Lock()
-	if c, ok := r.rangeCache[key]; ok && time.Since(c.cachedAt) < cacheTTL {
-		r.mu.Unlock()
-		return c.events, nil
-	}
-	r.mu.Unlock()
-
-	events, err := r.loadRangeFromDisk(from, to)
-	if err != nil {
-		return nil, err
-	}
-
-	r.mu.Lock()
-	r.rangeCache[key] = cachedLoad{events: events, cachedAt: time.Now()}
-	r.mu.Unlock()
-	return events, nil
+	return r.loadEventsRange(from, to.AddDate(0, 0, 1).Truncate(24*time.Hour))
 }
 
-func (r *Reader) loadRangeFromDisk(from, to time.Time) ([]Event, error) {
-	files, err := filepath.Glob(filepath.Join(r.dataDir, "events-*.jsonl"))
+func (r *Reader) loadEventsRange(from, to time.Time) ([]Event, error) {
+	files, err := r.eventFilesInRange(from, to)
 	if err != nil {
 		return nil, err
 	}
-	sort.Strings(files)
+	hash, _ := r.fileHash(files)
 
-	fromDay := from.UTC().Truncate(24 * time.Hour)
-	toDay := to.UTC().Truncate(24 * time.Hour).Add(24 * time.Hour) // inclusive end
+	r.mu.RLock()
+	if time.Since(r.cachedAt) < r.cacheTTL && r.cacheHash == hash {
+		out := make([]Event, len(r.cached))
+		copy(out, r.cached)
+		r.mu.RUnlock()
+		return out, nil
+	}
+	r.mu.RUnlock()
 
-	events := make([]Event, 0)
-	for _, f := range files {
-		base := filepath.Base(f)
-		dateStr := strings.TrimPrefix(strings.TrimSuffix(base, ".jsonl"), "events-")
-		fileDate, err := time.Parse("20060102", dateStr)
+	events := []Event{}
+	for _, path := range files {
+		f, err := os.Open(path)
 		if err != nil {
 			continue
 		}
-		if fileDate.Before(fromDay) || !fileDate.Before(toDay) {
-			continue
-		}
-
-		fh, err := os.Open(f)
-		if err != nil {
-			continue
-		}
-		scanner := bufio.NewScanner(fh)
-		scanner.Buffer(make([]byte, 1024*1024), 1024*1024)
-		for scanner.Scan() {
+		sc := bufio.NewScanner(f)
+		for sc.Scan() {
 			var ev Event
-			if err := json.Unmarshal(scanner.Bytes(), &ev); err == nil {
-				if !ev.ReceivedAt.Before(from) && !ev.ReceivedAt.After(to) {
-					events = append(events, ev)
-				}
-			}
-		}
-		_ = scanner.Err() // non-fatal: partial reads accepted
-		fh.Close()
-	}
-	return events, nil
-}
-
-func (r *Reader) loadFromDisk(days int) ([]Event, error) {
-	files, err := filepath.Glob(filepath.Join(r.dataDir, "events-*.jsonl"))
-	if err != nil {
-		return nil, err
-	}
-	sort.Strings(files) // chronological order
-
-	cutoff := time.Time{}
-	if days > 0 {
-		cutoff = time.Now().UTC().AddDate(0, 0, -days)
-	}
-
-	events := make([]Event, 0)
-	for _, f := range files {
-		// parse date from filename: events-YYYYMMDD.jsonl
-		base := filepath.Base(f)
-		dateStr := strings.TrimPrefix(strings.TrimSuffix(base, ".jsonl"), "events-")
-		if days > 0 {
-			fileDate, err := time.Parse("20060102", dateStr)
-			if err == nil && fileDate.Before(cutoff) {
-				continue
-			}
-		}
-
-		fh, err := os.Open(f)
-		if err != nil {
-			continue
-		}
-		scanner := bufio.NewScanner(fh)
-		scanner.Buffer(make([]byte, 1024*1024), 1024*1024) // 1MB per line
-		for scanner.Scan() {
-			var ev Event
-			if err := json.Unmarshal(scanner.Bytes(), &ev); err == nil {
+			if json.Unmarshal(sc.Bytes(), &ev) == nil {
 				events = append(events, ev)
 			}
 		}
-		_ = scanner.Err() // non-fatal: partial reads accepted
-		fh.Close()
+		f.Close()
 	}
+
+	r.mu.Lock()
+	r.cached = events
+	r.cachedAt = time.Now()
+	r.cacheHash = hash
+	r.mu.Unlock()
+
 	return events, nil
 }
 
-// Aggregate computes Stats from a slice of events.
 func Aggregate(events []Event) Stats {
-	endpoints := make(map[string]*EndpointInfo)
-	byEcosystem := make(map[string]int)
-	byOutcome := make(map[string]int)
-	var sessions int
-	var packagesAnalyzed uint64
-	var malicious, blocked, suspicious int
+	epMap := make(map[string]struct{})
+	invMap := make(map[string]struct{})
+	var analyzed uint64
+	blocked, malicious, suspicious := 0, 0, 0
+	ecoMap := make(map[string]int)
+	outMap := make(map[string]int)
+	dayMap := make(map[string]int)
 
 	for _, ev := range events {
-		// track endpoints
 		if ev.EndpointID != "" {
-			ep, ok := endpoints[ev.EndpointID]
-			if !ok {
-				ep = &EndpointInfo{
-					EndpointID: ev.EndpointID,
-					MachineID:  ev.MachineID,
-					Hostname:   ev.Hostname,
-					OS:         ev.OS,
-					Arch:       ev.Arch,
-				}
-				endpoints[ev.EndpointID] = ep
-			}
-			if ev.ReceivedAt.After(ep.LastSeen) {
-				ep.LastSeen = ev.ReceivedAt
-			}
+			epMap[ev.EndpointID] = struct{}{}
 		}
-
-		switch ev.EventType {
-		case "SESSION_SUMMARY":
-			sessions++
-			packagesAnalyzed += uint64(ev.TotalAnalyzed)
-			if ev.Outcome != "" {
-				byOutcome[ev.Outcome]++
-			}
-			if ep, ok := endpoints[ev.EndpointID]; ok {
-				ep.Sessions++
-			}
-
-		case "PACKAGE_DECISION":
-			if ev.Ecosystem != "" {
-				byEcosystem[ev.Ecosystem]++
+		if ev.InvocationID != "" {
+			invMap[ev.InvocationID] = struct{}{}
+		}
+		if ev.EventType == "package_decision" {
+			analyzed++
+			if ev.Action == "blocked" {
+				blocked++
 			}
 			if ev.IsMalware != nil && *ev.IsMalware {
 				malicious++
+			} else if ev.IsVerified != nil && !*ev.IsVerified {
+				suspicious++
 			}
-			if ev.Action == "BLOCKED" || ev.Action == "COOLDOWN_BLOCKED" {
-				blocked++
-				if ev.IsMalware == nil || !*ev.IsMalware {
-					suspicious++ // blocked but not confirmed malware = suspicious
-				}
+			if ev.Ecosystem != "" {
+				ecoMap[ev.Ecosystem]++
 			}
 		}
-	}
-
-	// events per day
-	dayCount := make(map[string]int)
-	for _, ev := range events {
+		if ev.EventType == "session_summary" && ev.Outcome != "" {
+			outMap[ev.Outcome]++
+		}
 		day := ev.ReceivedAt.UTC().Format("2006-01-02")
-		dayCount[day]++
-	}
-	dayKeys := make([]string, 0, len(dayCount))
-	for d := range dayCount {
-		dayKeys = append(dayKeys, d)
-	}
-	sort.Strings(dayKeys)
-	eventsPerDay := make([]DayBucket, 0, len(dayKeys))
-	for _, d := range dayKeys {
-		eventsPerDay = append(eventsPerDay, DayBucket{Date: d, Count: dayCount[d]})
+		dayMap[day]++
 	}
 
-	// recent events: last 50, newest first
-	recent := make([]Event, len(events))
-	copy(recent, events)
+	days := make([]DayBucket, 0, len(dayMap))
+	for k, v := range dayMap {
+		days = append(days, DayBucket{Date: k, Count: v})
+	}
+	sort.Slice(days, func(i, j int) bool { return days[i].Date < days[j].Date })
+
+	recent := events
+	if len(recent) > 50 {
+		recent = recent[len(recent)-50:]
+	}
 	sort.Slice(recent, func(i, j int) bool {
 		return recent[i].ReceivedAt.After(recent[j].ReceivedAt)
 	})
-	if len(recent) > 50 {
-		recent = recent[:50]
-	}
 
 	return Stats{
-		Endpoints:          len(endpoints),
-		Sessions:           sessions,
-		PackagesAnalyzed:   packagesAnalyzed,
+		Endpoints:          len(epMap),
+		Sessions:           len(invMap),
+		PackagesAnalyzed:   analyzed,
 		MaliciousPackages:  malicious,
 		BlockedPackages:    blocked,
 		SuspiciousPackages: suspicious,
-		ByEcosystem:        byEcosystem,
-		ByOutcome:          byOutcome,
-		EventsPerDay:       eventsPerDay,
+		ByEcosystem:        ecoMap,
+		ByOutcome:          outMap,
+		EventsPerDay:       days,
 		RecentEvents:       recent,
 	}
 }
 
-// ComputePackageStats returns top-10 packages, ecosystems, and endpoints by event count.
-func ComputePackageStats(events []Event) PackageStats {
-	pkgMap := make(map[string]PackageStat)
-	// versionSets tracks distinct versions seen per package key so the table can
-	// show which versions were involved without a drill-down.
-	versionSets := make(map[string]map[string]struct{})
-	ecoMap := make(map[string]int)
-	epMap := make(map[string]int)
-
-	for _, ev := range events {
-		if ev.EventType != "PACKAGE_DECISION" {
-			continue
-		}
-		if ev.PackageName != "" {
-			key := ev.Ecosystem + "|" + ev.PackageName
-			s := pkgMap[key]
-			s.Name = ev.PackageName
-			s.Ecosystem = ev.Ecosystem
-			s.Count++
-			if ev.Action == "BLOCKED" || ev.Action == "COOLDOWN_BLOCKED" {
-				s.BlockedCount++
-			}
-			if ev.Action == "COOLDOWN_BLOCKED" {
-				s.CooldownBlockedCount++
-			}
-			if ev.IsMalware != nil && *ev.IsMalware {
-				s.MalwareCount++
-			}
-			if s.LastSeen == nil || ev.ReceivedAt.After(*s.LastSeen) {
-				t := ev.ReceivedAt
-				s.LastSeen = &t
-			}
-			if ev.PackageVersion != "" {
-				if versionSets[key] == nil {
-					versionSets[key] = make(map[string]struct{})
-				}
-				versionSets[key][ev.PackageVersion] = struct{}{}
-			}
-			pkgMap[key] = s
-		}
-		if ev.Ecosystem != "" {
-			ecoMap[ev.Ecosystem]++
-		}
-		if ev.EndpointID != "" {
-			epMap[ev.EndpointID]++
-		}
-	}
-
-	// Materialize sorted version lists onto each package stat.
-	for key, set := range versionSets {
-		versions := make([]string, 0, len(set))
-		for v := range set {
-			versions = append(versions, v)
-		}
-		sort.Strings(versions)
-		s := pkgMap[key]
-		s.Versions = versions
-		pkgMap[key] = s
-	}
-
-	topN := func(list []PackageStat, n int) []PackageStat {
-		sort.Slice(list, func(i, j int) bool { return list[i].Count > list[j].Count })
-		if len(list) > n {
-			return list[:n]
-		}
-		return list
-	}
-
-	pkgs := make([]PackageStat, 0, len(pkgMap))
-	for _, v := range pkgMap {
-		pkgs = append(pkgs, v)
-	}
-	ecos := make([]PackageStat, 0, len(ecoMap))
-	for k, v := range ecoMap {
-		ecos = append(ecos, PackageStat{Name: k, Count: v})
-	}
-	eps := make([]PackageStat, 0, len(epMap))
-	for k, v := range epMap {
-		eps = append(eps, PackageStat{Name: k, Count: v})
-	}
-
-	return PackageStats{
-		TopPackages:   topN(pkgs, 10),
-		TopEcosystems: topN(ecos, 10),
-		TopEndpoints:  topN(eps, 10),
-	}
+// PackageStat holds per-package event counts.
+type PackageStat struct {
+	Ecosystem string `json:"ecosystem"`
+	Name      string `json:"name"`
+	Blocked   int    `json:"blocked"`
+	Allowed   int    `json:"allowed"`
 }
 
-// EndpointList returns deduplicated endpoint info sorted by last seen descending.
-func EndpointList(events []Event) []EndpointInfo {
-	type epState struct {
-		info          EndpointInfo
-		pkgManagers   map[string]struct{}
-		flowTypes     map[string]struct{}
-		latestSession time.Time
+func ComputePackageStats(events []Event) []PackageStat {
+	type key struct {
+		eco, name string
 	}
+	m := make(map[key]*PackageStat)
+	for _, ev := range events {
+		if ev.EventType != "package_decision" || ev.PackageName == "" {
+			continue
+		}
+		k := key{ev.Ecosystem, ev.PackageName}
+		ps, ok := m[k]
+		if !ok {
+			ps = &PackageStat{Ecosystem: ev.Ecosystem, Name: ev.PackageName}
+			m[k] = ps
+		}
+		if ev.Action == "blocked" {
+			ps.Blocked++
+		} else if ev.Action == "allowed" {
+			ps.Allowed++
+		}
+	}
+	out := make([]PackageStat, 0, len(m))
+	for _, v := range m {
+		out = append(out, *v)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		ti := out[i].Blocked + out[i].Allowed
+		tj := out[j].Blocked + out[j].Allowed
+		return ti > tj
+	})
+	return out
+}
 
-	m := make(map[string]*epState)
+// EndpointInfo is a merged view of an enrolled agent + event-derived stats.
+type EndpointInfo struct {
+	EndpointID      string     `json:"endpoint_id"`
+	Hostname        string     `json:"hostname"`
+	Label           string     `json:"label,omitempty"`
+	OS              string     `json:"os"`
+	Arch            string     `json:"arch"`
+	ToolVersion     string     `json:"tool_version,omitempty"`
+	LocalIP         string     `json:"local_ip,omitempty"`
+	RemoteIP        string     `json:"remote_ip,omitempty"`
+	GroupID         string     `json:"group_id,omitempty"`
+	EnrolledAt      time.Time  `json:"enrolled_at"`
+	FirstSeen       time.Time  `json:"first_seen"`
+	LastSeen        time.Time  `json:"last_seen"`
+	Sessions        int        `json:"sessions"`
+	TotalPackages   int        `json:"total_packages"`
+	BlockedPackages int        `json:"blocked_packages"`
+	Removed         bool       `json:"removed"`
+}
 
+// MergeAgentEndpoints combines enrolled agents with event-derived endpoint stats.
+func MergeAgentEndpoints(agents []Agent, events []Event) []EndpointInfo {
+	type epData struct {
+		firstSeen, lastSeen time.Time
+		invocations         map[string]struct{}
+		totalPkgs, blocked  int
+	}
+	m := make(map[string]*epData)
 	for _, ev := range events {
 		if ev.EndpointID == "" {
 			continue
 		}
-		st, ok := m[ev.EndpointID]
+		ed, ok := m[ev.EndpointID]
 		if !ok {
-			st = &epState{
-				info: EndpointInfo{
-					EndpointID: ev.EndpointID,
-					MachineID:  ev.MachineID,
-					Hostname:   ev.Hostname,
-					OS:         ev.OS,
-					Arch:       ev.Arch,
-				},
-				pkgManagers: make(map[string]struct{}),
-				flowTypes:   make(map[string]struct{}),
-			}
-			m[ev.EndpointID] = st
+			ed = &epData{invocations: make(map[string]struct{})}
+			m[ev.EndpointID] = ed
 		}
-
-		if ev.ReceivedAt.After(st.info.LastSeen) {
-			st.info.LastSeen = ev.ReceivedAt
-			if ev.ToolVersion != "" {
-				st.info.ToolVersion = ev.ToolVersion
-			}
-			if ev.RemoteIP != "" {
-				st.info.RemoteIP = ev.RemoteIP
-			}
+		if ed.firstSeen.IsZero() || ev.ReceivedAt.Before(ed.firstSeen) {
+			ed.firstSeen = ev.ReceivedAt
 		}
-
-		if ev.EventType == "SESSION_SUMMARY" {
-			st.info.Sessions++
-			st.info.TotalPackages += uint64(ev.TotalAnalyzed)
-			st.info.BlockedPackages += uint64(ev.BlockedCount)
-			if ev.PackageManager != "" {
-				st.pkgManagers[ev.PackageManager] = struct{}{}
-			}
-			if ev.FlowType != "" {
-				st.flowTypes[ev.FlowType] = struct{}{}
-			}
-			// latest session determines mode flags
-			if ev.ReceivedAt.After(st.latestSession) {
-				st.latestSession = ev.ReceivedAt
-				st.info.SandboxEnabled    = ev.SandboxEnabled
-				st.info.ParanoidMode      = ev.ParanoidMode
-				st.info.TransitiveEnabled = ev.TransitiveEnabled
+		if ev.ReceivedAt.After(ed.lastSeen) {
+			ed.lastSeen = ev.ReceivedAt
+		}
+		if ev.InvocationID != "" {
+			ed.invocations[ev.InvocationID] = struct{}{}
+		}
+		if ev.EventType == "package_decision" {
+			ed.totalPkgs++
+			if ev.Action == "blocked" {
+				ed.blocked++
 			}
 		}
 	}
 
-	list := make([]EndpointInfo, 0, len(m))
-	for _, st := range m {
-		ep := st.info
-		for pm := range st.pkgManagers {
-			ep.PackageManagers = append(ep.PackageManagers, pm)
-		}
-		sort.Strings(ep.PackageManagers)
-		for ft := range st.flowTypes {
-			ep.FlowTypes = append(ep.FlowTypes, ft)
-		}
-		sort.Strings(ep.FlowTypes)
-		list = append(list, ep)
-	}
-	sort.Slice(list, func(i, j int) bool {
-		return list[i].LastSeen.After(list[j].LastSeen)
-	})
-	return list
-}
-
-// MergeAgentEndpoints adds enrolled agents that have no matching event-sourced endpoint.
-// Correlation is by hostname (case-insensitive). For endpoints that DO match an enrolled
-// agent, the agent's PMGVersion overlays the event-sourced ToolVersion: the agent record
-// is kept fresh by heartbeat, so it reflects self-updates that have not yet produced a new
-// install event. New agents get LastSeen = EnrolledAt and Sessions = 0.
-func MergeAgentEndpoints(endpoints []EndpointInfo, agents []Agent) []EndpointInfo {
-	agentByHost := make(map[string]Agent, len(agents))
+	agentMap := make(map[string]Agent)
 	for _, a := range agents {
-		agentByHost[strings.ToLower(a.Hostname)] = a
+		agentMap[a.ID] = a
 	}
 
-	seen := make(map[string]struct{}, len(endpoints))
-	for i := range endpoints {
-		host := strings.ToLower(endpoints[i].Hostname)
-		seen[host] = struct{}{}
-		a, ok := agentByHost[host]
-		if !ok {
-			continue
+	endpoints := make([]EndpointInfo, 0, len(m))
+	for epID, ed := range m {
+		a, hasAgent := agentMap[epID]
+		ei := EndpointInfo{
+			EndpointID:      epID,
+			FirstSeen:       ed.firstSeen,
+			LastSeen:        ed.lastSeen,
+			Sessions:        len(ed.invocations),
+			TotalPackages:   ed.totalPkgs,
+			BlockedPackages: ed.blocked,
 		}
-		if a.PMGVersion != "" {
-			endpoints[i].ToolVersion = a.PMGVersion
+		if hasAgent {
+			ei.Hostname = a.Hostname
+			ei.Label = a.Label
+			ei.OS = a.OS
+			ei.Arch = a.Arch
+			ei.ToolVersion = a.PMGVersion
+			ei.LocalIP = a.LocalIP
+			ei.RemoteIP = a.RemoteIP
+			ei.GroupID = a.GroupID
+			ei.EnrolledAt = a.EnrolledAt
+			ei.Removed = a.Removed
+			if a.LastSeen != nil && a.LastSeen.After(ei.LastSeen) {
+				ei.LastSeen = *a.LastSeen
+			}
 		}
-		if a.Label != "" {
-			endpoints[i].Label = a.Label
-		}
-		if a.LocalIP != "" {
-			endpoints[i].LocalIP = a.LocalIP
-		}
-		if a.RemoteIP != "" {
-			endpoints[i].RemoteIP = a.RemoteIP
-		}
-		endpoints[i].Removed = a.Removed
-		// Heartbeat keeps Agent.LastSeen fresh even without a new install event,
-		// so use it when newer to keep the Endpoints online/offline status in sync
-		// with the Agents tab.
-		if a.LastSeen != nil && a.LastSeen.After(endpoints[i].LastSeen) {
-			endpoints[i].LastSeen = *a.LastSeen
-		}
+		endpoints = append(endpoints, ei)
 	}
+
+	// also include enrolled agents that have zero events
 	for _, a := range agents {
-		if _, ok := seen[strings.ToLower(a.Hostname)]; ok {
-			continue
+		if _, seen := m[a.ID]; !seen {
+			ei := EndpointInfo{
+				EndpointID:  a.ID,
+				Hostname:    a.Hostname,
+				Label:       a.Label,
+				OS:          a.OS,
+				Arch:        a.Arch,
+				ToolVersion: a.PMGVersion,
+				LocalIP:     a.LocalIP,
+				RemoteIP:    a.RemoteIP,
+				GroupID:     a.GroupID,
+				EnrolledAt:  a.EnrolledAt,
+				FirstSeen:   a.EnrolledAt,
+				Removed:     a.Removed,
+			}
+			if a.LastSeen != nil {
+				ei.LastSeen = *a.LastSeen
+			} else {
+				ei.LastSeen = a.EnrolledAt
+			}
+			endpoints = append(endpoints, ei)
 		}
-		lastSeen := a.EnrolledAt
-		if a.LastSeen != nil {
-			lastSeen = *a.LastSeen
-		}
-		endpoints = append(endpoints, EndpointInfo{
-			EndpointID:  a.ID,
-			MachineID:   a.ID,
-			Hostname:    a.Hostname,
-			Label:       a.Label,
-			OS:          a.OS,
-			Arch:        a.Arch,
-			RemoteIP:    a.RemoteIP,
-			LocalIP:     a.LocalIP,
-			LastSeen:    lastSeen,
-			ToolVersion: a.PMGVersion,
-		})
-		seen[strings.ToLower(a.Hostname)] = struct{}{}
 	}
+
 	sort.Slice(endpoints, func(i, j int) bool {
 		return endpoints[i].LastSeen.After(endpoints[j].LastSeen)
 	})
 	return endpoints
 }
 
-// CIRepoStat aggregates event counts per CI repository.
+// CIRepoStat holds per-repository CI event stats.
 type CIRepoStat struct {
 	Repository string    `json:"repository"`
 	Count      int       `json:"count"`
@@ -612,23 +421,22 @@ type CIRepoStat struct {
 	LastSeen   time.Time `json:"last_seen"`
 }
 
-// CIBranchStat aggregates event counts per branch within a CI repository.
+// CIBranchStat holds per-branch CI event stats.
 type CIBranchStat struct {
-	Branch     string    `json:"branch"`
-	Repository string    `json:"repository"`
-	Count      int       `json:"count"`
-	Blocked    int       `json:"blocked"`
-	LastSeen   time.Time `json:"last_seen"`
+	Branch   string    `json:"branch"`
+	Count    int       `json:"count"`
+	Blocked  int       `json:"blocked"`
+	LastSeen time.Time `json:"last_seen"`
 }
 
-// CIProviderStat aggregates event counts per CI provider.
+// CIProviderStat holds per-provider CI event stats.
 type CIProviderStat struct {
 	Provider string `json:"provider"`
 	Count    int    `json:"count"`
 	Blocked  int    `json:"blocked"`
 }
 
-// CIStats is returned by GET /api/ci-stats.
+// CIStats aggregates CI-specific metrics.
 type CIStats struct {
 	TopRepositories []CIRepoStat     `json:"top_repositories"`
 	TopBranches     []CIBranchStat   `json:"top_branches"`
@@ -636,49 +444,42 @@ type CIStats struct {
 	TotalCIEvents   int              `json:"total_ci_events"`
 }
 
-// ComputeCIStats aggregates CI telemetry from events where CIRepository is set.
 func ComputeCIStats(events []Event) CIStats {
-	type repoKey = string
-	type branchKey = string
-
-	repoMap := make(map[repoKey]*CIRepoStat)
-	branchMap := make(map[branchKey]*CIBranchStat)
+	repoMap := make(map[string]*CIRepoStat)
+	branchMap := make(map[string]*CIBranchStat)
 	providerMap := make(map[string]*CIProviderStat)
 	total := 0
 
-	isBlocked := func(ev Event) bool {
-		return ev.Action == "BLOCKED" || ev.Action == "COOLDOWN_BLOCKED"
-	}
-
 	for _, ev := range events {
-		if ev.CIRepository == "" {
+		if ev.CIProvider == "" {
 			continue
 		}
 		total++
 		blocked := 0
-		if isBlocked(ev) {
+		if ev.EventType == "package_decision" && ev.Action == "blocked" {
 			blocked = 1
 		}
 
 		// repo stats
-		rs, ok := repoMap[ev.CIRepository]
-		if !ok {
-			rs = &CIRepoStat{Repository: ev.CIRepository}
-			repoMap[ev.CIRepository] = rs
-		}
-		rs.Count++
-		rs.Blocked += blocked
-		if ev.ReceivedAt.After(rs.LastSeen) {
-			rs.LastSeen = ev.ReceivedAt
+		if ev.CIRepository != "" {
+			rs, ok := repoMap[ev.CIRepository]
+			if !ok {
+				rs = &CIRepoStat{Repository: ev.CIRepository}
+				repoMap[ev.CIRepository] = rs
+			}
+			rs.Count++
+			rs.Blocked += blocked
+			if ev.ReceivedAt.After(rs.LastSeen) {
+				rs.LastSeen = ev.ReceivedAt
+			}
 		}
 
 		// branch stats
 		if ev.CIBranch != "" {
-			bk := ev.CIRepository + "|" + ev.CIBranch
-			bs, ok := branchMap[bk]
+			bs, ok := branchMap[ev.CIBranch]
 			if !ok {
-				bs = &CIBranchStat{Branch: ev.CIBranch, Repository: ev.CIRepository}
-				branchMap[bk] = bs
+				bs = &CIBranchStat{Branch: ev.CIBranch}
+				branchMap[ev.CIBranch] = bs
 			}
 			bs.Count++
 			bs.Blocked += blocked
@@ -732,4 +533,81 @@ func ComputeCIStats(events []Event) CIStats {
 		ByProvider:      providers,
 		TotalCIEvents:   total,
 	}
+}
+
+// DeleteEventsByEndpointID removes all events for a given endpoint from JSONL files.
+// This rewrites each affected JSONL file, filtering out events with matching endpoint_id.
+func (r *Reader) DeleteEventsByEndpointID(dataDir, endpointID string) error {
+	// Load all events (no date filter)
+	from := time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC)
+	to := time.Now().UTC().AddDate(0, 0, 1).Truncate(24 * time.Hour)
+	files, err := r.eventFilesInRange(from, to)
+	if err != nil {
+		return err
+	}
+
+	// Process each file
+	for _, path := range files {
+		if err := deleteEventsFromFile(path, endpointID); err != nil {
+			return err
+		}
+	}
+
+	// Clear cache since we modified files
+	r.mu.Lock()
+	r.cached = nil
+	r.cachedAt = time.Time{}
+	r.cacheHash = ""
+	r.mu.Unlock()
+
+	return nil
+}
+
+func deleteEventsFromFile(path, endpointID string) error {
+	// Read all lines
+	f, err := os.Open(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil // file doesn't exist, nothing to do
+		}
+		return err
+	}
+	defer f.Close()
+
+	var kept []string
+	sc := bufio.NewScanner(f)
+	for sc.Scan() {
+		line := sc.Text()
+		var ev Event
+		if json.Unmarshal([]byte(line), &ev) == nil {
+			if ev.EndpointID != endpointID {
+				kept = append(kept, line)
+			}
+		}
+	}
+	if err := sc.Err(); err != nil {
+		return err
+	}
+	f.Close()
+
+	// Write back filtered events
+	tmpPath := path + ".tmp"
+	tmp, err := os.Create(tmpPath)
+	if err != nil {
+		return err
+	}
+	for _, line := range kept {
+		if _, err := tmp.WriteString(line + "\n"); err != nil {
+			tmp.Close()
+			os.Remove(tmpPath)
+			return err
+		}
+	}
+	if err := tmp.Close(); err != nil {
+		os.Remove(tmpPath)
+		return err
+	}
+
+	// Replace original with temp
+	return os.Rename(tmpPath, path)
 }

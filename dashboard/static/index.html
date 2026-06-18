@@ -696,7 +696,10 @@ async function renderEndpoints(){
   '<td>'+fmt(ep.total_packages)+'</td>'+
   '<td>'+((ep.blocked_packages||0)>0?bdg(fmt(ep.blocked_packages),'red'):'0')+'</td>'+
   '<td style="font-size:12px;color:var(--tx3)">'+fmtDate(ep.last_seen)+'</td>'+
-  '<td onclick="event.stopPropagation()">'+(S.me&&S.me.role==='admin'&&ep.removed?'<button class="btn btn-sm btn-danger" onclick="removeAgent(\''+h(ep.endpoint_id)+'\',\''+h(ep.hostname)+'\')">Delete Events</button>':'')+'</td></tr>';
+  '<td onclick="event.stopPropagation()">'+(S.me&&S.me.role==='admin'?
+    (ep.removed?'<button class="btn btn-sm btn-danger" onclick="deleteAgentEvents(\''+h(ep.endpoint_id)+'\')">Delete Events</button>':
+    '<button class="btn btn-sm btn-warning" onclick="removeAgent(\''+h(ep.endpoint_id)+'\',\''+h(ep.hostname)+'\')">Remove</button>')
+  :'')+'</td></tr>';
 }).join(''):'<tr><td colspan="11" class="empty">No endpoints</td></tr>')+
 '</tbody></table></div>'+versionCompliance(epList);
 }
@@ -1293,6 +1296,16 @@ async function renameAgent(id,current){
     if(!r.ok){var d=await r.json().catch(function(){return{};});showToast(d.error||'Error','error');return;}
     showToast('Device name updated','success');
     await renderAgents();
+  }catch(e){showToast('Error: '+e.message,'error');}
+}
+
+async function deleteAgentEvents(id){
+  if(!confirm('Delete all events for this agent? This cannot be undone.'))return;
+  try{
+    var r=await fetch('/api/endpoints/'+encodeURIComponent(id)+'/events',{method:'DELETE'});
+    if(!r.ok){var d=await r.json().catch(function(){return{};});showToast(d.error||'Error','error');return;}
+    showToast('Events deleted','success');
+    await renderEndpoints();
   }catch(e){showToast('Error: '+e.message,'error');}
 }
 
