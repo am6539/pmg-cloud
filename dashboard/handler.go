@@ -182,6 +182,11 @@ func Handler(dataDir string, deps HandlerDeps) http.Handler {
 
 	// API: dashboard — combined stats + recent events in one call
 	mux.HandleFunc("/api/dashboard", func(w http.ResponseWriter, r *http.Request) {
+		s, ok := sessionFromContext(r)
+		if ok && s.Role == RoleEditor {
+			http.Error(w, `{"error":"forbidden"}`, http.StatusForbidden)
+			return
+		}
 		days := parseDays(r, 30)
 		events, err := reader.LoadEvents(days)
 		if err != nil {
@@ -194,6 +199,11 @@ func Handler(dataDir string, deps HandlerDeps) http.Handler {
 
 	// API: stats (kept for backwards compat)
 	mux.HandleFunc("/api/stats", func(w http.ResponseWriter, r *http.Request) {
+		s, ok := sessionFromContext(r)
+		if ok && s.Role == RoleEditor {
+			http.Error(w, `{"error":"forbidden"}`, http.StatusForbidden)
+			return
+		}
 		days := parseDays(r, 30)
 		events, err := reader.LoadEvents(days)
 		if err != nil {
@@ -205,6 +215,11 @@ func Handler(dataDir string, deps HandlerDeps) http.Handler {
 
 	// API: recent events list with optional filter and date-range support
 	mux.HandleFunc("/api/events", func(w http.ResponseWriter, r *http.Request) {
+		s, ok := sessionFromContext(r)
+		if ok && s.Role == RoleEditor {
+			http.Error(w, `{"error":"forbidden"}`, http.StatusForbidden)
+			return
+		}
 		q := r.URL.Query()
 		var events []Event
 		var err error
@@ -300,6 +315,11 @@ func Handler(dataDir string, deps HandlerDeps) http.Handler {
 
 	// API: package stats — top packages, ecosystems, endpoints by install count
 	mux.HandleFunc("/api/package-stats", func(w http.ResponseWriter, r *http.Request) {
+		s, ok := sessionFromContext(r)
+		if ok && s.Role == RoleEditor {
+			http.Error(w, `{"error":"forbidden"}`, http.StatusForbidden)
+			return
+		}
 		days := parseDays(r, 30)
 		events, err := reader.LoadEvents(days)
 		if err != nil {
@@ -311,6 +331,11 @@ func Handler(dataDir string, deps HandlerDeps) http.Handler {
 
 	// API: endpoints — exact match (list)
 	mux.HandleFunc("/api/endpoints", func(w http.ResponseWriter, r *http.Request) {
+		s, ok := sessionFromContext(r)
+		if ok && s.Role == RoleEditor {
+			http.Error(w, `{"error":"forbidden"}`, http.StatusForbidden)
+			return
+		}
 		events, err := reader.LoadEvents(0) // all time
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -363,6 +388,11 @@ func Handler(dataDir string, deps HandlerDeps) http.Handler {
 
 	// API: CI stats
 	mux.HandleFunc("/api/ci-stats", func(w http.ResponseWriter, r *http.Request) {
+		s, ok := sessionFromContext(r)
+		if ok && s.Role == RoleEditor {
+			http.Error(w, `{"error":"forbidden"}`, http.StatusForbidden)
+			return
+		}
 		days := parseDays(r, 30)
 		events, err := reader.LoadEvents(days)
 		if err != nil {
@@ -394,10 +424,20 @@ func Handler(dataDir string, deps HandlerDeps) http.Handler {
 	})
 
 	mux.HandleFunc("/api/malware/status", func(w http.ResponseWriter, r *http.Request) {
+		s, ok := sessionFromContext(r)
+		if ok && s.Role == RoleEditor {
+			http.Error(w, `{"error":"forbidden"}`, http.StatusForbidden)
+			return
+		}
 		writeJSON(w, mirror.Status())
 	})
 
 	mux.HandleFunc("/api/malware/refresh", func(w http.ResponseWriter, r *http.Request) {
+		s, ok := sessionFromContext(r)
+		if ok && s.Role == RoleEditor {
+			http.Error(w, `{"error":"forbidden"}`, http.StatusForbidden)
+			return
+		}
 		if r.Method != http.MethodPost {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
@@ -415,6 +455,11 @@ func Handler(dataDir string, deps HandlerDeps) http.Handler {
 	// Config management APIs — only when Config is wired.
 	if deps.Config != nil {
 		mux.HandleFunc("/api/config", func(w http.ResponseWriter, r *http.Request) {
+			s, ok := sessionFromContext(r)
+			if ok && s.Role != RoleAdmin {
+				http.Error(w, `{"error":"forbidden"}`, http.StatusForbidden)
+				return
+			}
 			switch r.Method {
 			case http.MethodGet:
 				writeJSON(w, deps.Config.Get())
@@ -582,6 +627,11 @@ func Handler(dataDir string, deps HandlerDeps) http.Handler {
 	// Audit log API — only when Audit is wired.
 	if deps.Audit != nil {
 		mux.HandleFunc("/api/audit", func(w http.ResponseWriter, r *http.Request) {
+			s, ok := sessionFromContext(r)
+			if ok && s.Role != RoleAdmin {
+				http.Error(w, `{"error":"forbidden"}`, http.StatusForbidden)
+				return
+			}
 			limit := 200
 			if l := r.URL.Query().Get("limit"); l != "" {
 				if n, err := strconv.Atoi(l); err == nil && n > 0 {
@@ -607,6 +657,11 @@ func Handler(dataDir string, deps HandlerDeps) http.Handler {
 		// GET  /api/groups        — list all groups with key counts
 		// POST /api/groups        — create group {name}
 		mux.HandleFunc("/api/groups", func(w http.ResponseWriter, r *http.Request) {
+			s, ok := sessionFromContext(r)
+			if ok && s.Role != RoleAdmin {
+				http.Error(w, `{"error":"forbidden"}`, http.StatusForbidden)
+				return
+			}
 			switch r.Method {
 			case http.MethodGet:
 				list := groups.ListGroups()
@@ -647,6 +702,11 @@ func Handler(dataDir string, deps HandlerDeps) http.Handler {
 
 		// GET /api/groups/export — export group list + key metadata (no hashes)
 		mux.HandleFunc("/api/groups/export", func(w http.ResponseWriter, r *http.Request) {
+			s, ok := sessionFromContext(r)
+			if ok && s.Role != RoleAdmin {
+				http.Error(w, `{"error":"forbidden"}`, http.StatusForbidden)
+				return
+			}
 			if r.Method != http.MethodGet {
 				http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 				return
@@ -689,6 +749,11 @@ func Handler(dataDir string, deps HandlerDeps) http.Handler {
 
 		// /api/groups/{id}  /api/groups/{id}/keys  /api/groups/{id}/keys/{kid}
 		mux.HandleFunc("/api/groups/", func(w http.ResponseWriter, r *http.Request) {
+			s, ok := sessionFromContext(r)
+			if ok && s.Role != RoleAdmin {
+				http.Error(w, `{"error":"forbidden"}`, http.StatusForbidden)
+				return
+			}
 			tail := strings.TrimPrefix(r.URL.Path, "/api/groups/")
 			parts := strings.SplitN(tail, "/", 3)
 
