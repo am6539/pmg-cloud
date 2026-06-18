@@ -48,6 +48,7 @@ type Agent struct {
 	APIKeyID   string     `json:"api_key_id"`
 	EnrolledAt time.Time  `json:"enrolled_at"`
 	LastSeen   *time.Time `json:"last_seen,omitempty"`
+	Removed    bool       `json:"removed,omitempty"` // true = agent removed but events kept for audit
 }
 
 type enrollmentFile struct {
@@ -184,12 +185,16 @@ func (es *EnrollmentStore) RegisterAgent(a Agent) error {
 	return es.save()
 }
 
-// ListAgents returns all registered agents.
+// ListAgents returns all registered (non-removed) agents.
 func (es *EnrollmentStore) ListAgents() []Agent {
 	es.mu.RLock()
 	defer es.mu.RUnlock()
-	out := make([]Agent, len(es.data.Agents))
-	copy(out, es.data.Agents)
+	var out []Agent
+	for _, a := range es.data.Agents {
+		if !a.Removed {
+			out = append(out, a)
+		}
+	}
 	return out
 }
 
@@ -249,22 +254,15 @@ func (es *EnrollmentStore) TouchAgentByAPIKeyID(keyID, version, localIP, remoteI
 	return nil
 }
 
-// RemoveAgent deletes an agent record by ID.
+// RemoveAgent marks an agent as removed (keeps events for audit).
 func (es *EnrollmentStore) RemoveAgent(id string) error {
 	es.mu.Lock()
 	defer es.mu.Unlock()
-	agents := es.data.Agents[:0]
-	found := false
-	for _, a := range es.data.Agents {
+	for i, a := range es.data.Agents {
 		if a.ID == id {
-			found = true
-			continue
+			es.data.Agents[i].Removed = true
+			return es.save()
 		}
-		agents = append(agents, a)
 	}
-	if !found {
-		return fmt.Errorf("agent not found")
-	}
-	es.data.Agents = agents
-	return es.save()
+	return fmt.Errorf("agent not found")
 }
