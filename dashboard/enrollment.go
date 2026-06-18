@@ -198,6 +198,15 @@ func (es *EnrollmentStore) ListAgents() []Agent {
 	return out
 }
 
+// ListAllAgents returns all agents including removed ones (for audit/endpoints).
+func (es *EnrollmentStore) ListAllAgents() []Agent {
+	es.mu.RLock()
+	defer es.mu.RUnlock()
+	out := make([]Agent, len(es.data.Agents))
+	copy(out, es.data.Agents)
+	return out
+}
+
 // AssignAgentGroup updates an agent's group assignment.
 func (es *EnrollmentStore) AssignAgentGroup(agentID, groupID string) error {
 	es.mu.Lock()
