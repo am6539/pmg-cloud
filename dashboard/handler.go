@@ -1198,7 +1198,7 @@ func Handler(dataDir string, deps HandlerDeps) http.Handler {
 		// GET /install.ps1 — unauthenticated, serves dynamic PowerShell install script (Windows)
 		mux.HandleFunc("/install.ps1", func(w http.ResponseWriter, r *http.Request) {
 			scheme := "http"
-			if r.TLS != nil {
+			if r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https" {
 				scheme = "https"
 			}
 			serverURL := scheme + "://" + r.Host
