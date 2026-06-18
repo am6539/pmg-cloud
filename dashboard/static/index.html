@@ -682,21 +682,22 @@ async function renderEndpoints(){
 '<div class="sec-title">Endpoints <small>'+epList.length+' total</small>'+
 '<a href="'+csvUrl+'" download="endpoints.csv" class="btn btn-sm btn-ghost">&#8681; CSV</a></div>'+
 '<div class="tbl-wrap"><table>'+
-'<thead><tr><th>Status</th><th>Endpoint ID</th><th>Device</th><th>OS</th><th>IP Address</th><th>PMG Version</th><th>Sessions</th><th>Packages</th><th>Blocked</th><th>Last Seen</th></tr></thead>'+
+'<thead><tr><th>Status</th><th>Endpoint ID</th><th>Device</th><th>OS</th><th>IP Address</th><th>PMG Version</th><th>Sessions</th><th>Packages</th><th>Blocked</th><th>Last Seen</th><th></th></tr></thead>'+
 '<tbody>'+(epList.length?epList.map(function(ep,i){
   var st=epStatus(ep.last_seen);
   return'<tr class="clickable" onclick="openEpDrawer('+i+')">'+
   '<td style="white-space:nowrap"><span class="dot '+st.dot+'" style="display:inline-block;margin-right:5px"></span><span style="font-size:12px;font-weight:600;color:'+st.color+'">'+st.label+'</span></td>'+
   '<td class="trunc mono" title="'+h(ep.endpoint_id)+'" style="font-size:11px">'+trunc(ep.endpoint_id,18)+'</td>'+
-  '<td>'+(ep.label?'<strong>'+h(ep.label)+'</strong><div style="font-size:11px;color:var(--tx4)">'+h(ep.hostname||'')+'</div>':(ep.hostname?h(ep.hostname):'—'))+'</td>'+
+  '<td>'+(ep.label?'<strong>'+h(ep.label)+'</strong><div style="font-size:11px;color:var(--tx4)">'+h(ep.hostname||'')+'</div>':(ep.hostname?h(ep.hostname):'—'))+(ep.removed?' '+bdg('Removed','gray'):'')+'</td>'+
   '<td>'+bdg(ep.os||'—','gray')+'</td>'+
   '<td class="mono" style="font-size:11px">'+(ep.local_ip?'<div>'+h(ep.local_ip)+'</div>':'')+(ep.remote_ip?'<div style="color:var(--tx4)">'+h(ep.remote_ip)+'</div>':'—')+'</td>'+
   '<td>'+(ep.tool_version?h(ep.tool_version):'—')+'</td>'+
   '<td>'+fmt(ep.sessions)+'</td>'+
   '<td>'+fmt(ep.total_packages)+'</td>'+
   '<td>'+((ep.blocked_packages||0)>0?bdg(fmt(ep.blocked_packages),'red'):'0')+'</td>'+
-  '<td style="font-size:12px;color:var(--tx3)">'+fmtDate(ep.last_seen)+'</td></tr>';
-}).join(''):'<tr><td colspan="10" class="empty">No endpoints</td></tr>')+
+  '<td style="font-size:12px;color:var(--tx3)">'+fmtDate(ep.last_seen)+'</td>'+
+  '<td onclick="event.stopPropagation()">'+(S.me&&S.me.role==='admin'&&ep.removed?'<button class="btn btn-sm btn-danger" onclick="removeAgent(\''+h(ep.endpoint_id)+'\',\''+h(ep.hostname)+'\')">Delete Events</button>':'')+'</td></tr>';
+}).join(''):'<tr><td colspan="11" class="empty">No endpoints</td></tr>')+
 '</tbody></table></div>'+versionCompliance(epList);
 }
 
@@ -1067,6 +1068,7 @@ async function refreshFeed(btn){
 async function renderAgents(){
   var agents=[];var tokens=[];
   try{agents=await api('/api/agents');}catch(e){}
+  agents=(agents||[]).filter(function(a){return a&&!a.removed;});
   if(S.me&&S.me.role==='admin'){try{tokens=await api('/api/enrollment-tokens');}catch(e){}}
   var groups=S.groups||[];
   var missing=agents.filter(function(a){return epStatus(a.last_seen).label==='Offline';});

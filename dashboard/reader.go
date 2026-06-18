@@ -114,6 +114,7 @@ type EndpointInfo struct {
 	ToolVersion       string    `json:"tool_version"`
 	PackageManagers   []string  `json:"package_managers"`
 	FlowTypes         []string  `json:"flow_types"`
+	Removed           bool      `json:"removed,omitempty"` // true = agent was removed but events kept
 	TotalPackages     uint64    `json:"total_packages"`
 	BlockedPackages   uint64    `json:"blocked_packages"`
 	SandboxEnabled    *bool     `json:"sandbox_enabled"`
@@ -567,6 +568,7 @@ func MergeAgentEndpoints(endpoints []EndpointInfo, agents []Agent) []EndpointInf
 		if a.RemoteIP != "" {
 			endpoints[i].RemoteIP = a.RemoteIP
 		}
+		endpoints[i].Removed = a.Removed
 		// Heartbeat keeps Agent.LastSeen fresh even without a new install event,
 		// so use it when newer to keep the Endpoints online/offline status in sync
 		// with the Agents tab.
