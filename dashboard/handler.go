@@ -326,7 +326,85 @@ func Handler(dataDir string, deps HandlerDeps) http.Handler {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		writeJSON(w, ComputePackageStats(events))
+
+		// Build comprehensive package stats
+		type pkgKey struct {
+			eco, name string
+		}
+		pkgMap := make(map[pkgKey]*map[string]interface{})
+		ecoMap := make(map[string]int)
+
+		for _, ev := range events {
+			if ev.EventType != "package_decision" || ev.PackageName == "" {
+				continue
+			}
+			k := pkgKey{ev.Ecosystem, ev.PackageName}
+			p, ok := pkgMap[k]
+			if !ok {
+				p = &map[string]interface{}{
+					"name":                   ev.PackageName,
+					"ecosystem":              ev.Ecosystem,
+					"count":                  0,
+					"blocked_count":          0,
+					"malware_count":          0,
+					"cooldown_blocked_count": 0,
+					"versions":               []string{},
+					"last_seen":              ev.ReceivedAt,
+				}
+				pkgMap[k] = p
+			}
+			pkg := *p
+			pkg["count"] = pkg["count"].(int) + 1
+			if ev.Action == "blocked" {
+				pkg["blocked_count"] = pkg["blocked_count"].(int) + 1
+			}
+			if ev.IsMalware != nil && *ev.IsMalware {
+				pkg["malware_count"] = pkg["malware_count"].(int) + 1
+			}
+			if ev.ReceivedAt.After(pkg["last_seen"].(time.Time)) {
+				pkg["last_seen"] = ev.ReceivedAt
+			}
+			// Track versions
+			if ev.PackageVersion != "" {
+				versions := pkg["versions"].([]string)
+				found := false
+				for _, v := range versions {
+					if v == ev.PackageVersion {
+						found = true
+						break
+					}
+				}
+				if !found {
+					pkg["versions"] = append(versions, ev.PackageVersion)
+				}
+			}
+			ecoMap[ev.Ecosystem]++
+		}
+
+		// Convert to arrays
+		topPackages := make([]map[string]interface{}, 0, len(pkgMap))
+		for _, p := range pkgMap {
+			topPackages = append(topPackages, *p)
+		}
+		sort.Slice(topPackages, func(i, j int) bool {
+			return topPackages[i]["count"].(int) > topPackages[j]["count"].(int)
+		})
+
+		topEcosystems := make([]map[string]interface{}, 0, len(ecoMap))
+		for eco, count := range ecoMap {
+			topEcosystems = append(topEcosystems, map[string]interface{}{
+				"name":  eco,
+				"count": count,
+			})
+		}
+		sort.Slice(topEcosystems, func(i, j int) bool {
+			return topEcosystems[i]["count"].(int) > topEcosystems[j]["count"].(int)
+		})
+
+		writeJSON(w, map[string]interface{}{
+			"top_packages":    topPackages,
+			"top_ecosystems": topEcosystems,
+		})
 	})
 
 	// API: endpoints — exact match (list)
