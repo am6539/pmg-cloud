@@ -101,7 +101,7 @@ func (r *Reader) eventFilesInRange(from, to time.Time) ([]string, error) {
 	// from is inclusive, to is exclusive
 	paths := []string{}
 	for d := from; d.Before(to); d = d.AddDate(0, 0, 1) {
-		fname := d.Format("2006-01-02") + ".jsonl"
+		fname := "events-" + d.Format("20060102") + ".jsonl"
 		p := filepath.Join(r.dataDir, fname)
 		if _, err := os.Stat(p); err == nil {
 			paths = append(paths, p)
