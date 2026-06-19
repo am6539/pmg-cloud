@@ -283,7 +283,7 @@ function showToast(msg,type){
   setTimeout(function(){t.classList.remove('show');setTimeout(function(){if(t.parentNode)t.parentNode.removeChild(t);},220);},3000);
 }
 /* ---- STATE ---- */
-var S={page:'dashboard',group:'',days:30,from:'',to:'',useRange:false,evOffset:0,evFilter:{type:'',action:'',malware:''},pkgTab:0,dark:localStorage.dark==='1',groups:[],config:null,me:null,pendingUpdateVersion:null};
+var S={page:'dashboard',group:'',days:30,from:'',to:'',useRange:false,evOffset:0,evFilter:{type:'',action:'',malware:''},pkgTab:0,malwareSearch:'',malwareEco:'',malwareOffset:0,dark:localStorage.dark==='1',groups:[],config:null,me:null,pendingUpdateVersion:null};
 
 document.addEventListener('DOMContentLoaded',function(){
   applyTheme();
@@ -1046,25 +1046,78 @@ ciSetupGuide();
 
 /* ---- MALWARE ---- */
 async function renderMalware(){
+  var stats=await api('/api/malware/stats');
   var st=await api('/api/malware/status');
   var npm=st.npm||{};var pypi=st.pypi||{};
+  var detections=stats.detections||[];
+  var totalDetections=detections.reduce(function(sum,d){return sum+d.count;},0);
+
+  // Get entries with current search/filter
+  var search=S.malwareSearch||'';
+  var eco=S.malwareEco||'';
+  var offset=S.malwareOffset||0;
+  var limit=50;
+  var q='limit='+limit+'&offset='+offset;
+  if(search)q+='&search='+encodeURIComponent(search);
+  if(eco)q+='&ecosystem='+eco;
+  var entriesData=await api('/api/malware/entries?'+q);
+  var entries=entriesData.entries||[];
+  var total=entriesData.total||0;
+
   document.getElementById('content').innerHTML=
 '<div class="kpi-grid">'+
-'<div class="kpi'+(!npm.ok?' danger':'')+'"><div class="kpi-lbl">NPM Feed</div><div class="kpi-val" style="font-size:20px">'+(npm.ok?bdg('OK','green'):bdg('ERROR','red'))+'</div><div class="kpi-delta">'+(npm.count?fmt(npm.count)+' entries':'')+'</div></div>'+
-'<div class="kpi'+(!pypi.ok?' danger':'')+'"><div class="kpi-lbl">PyPI Feed</div><div class="kpi-val" style="font-size:20px">'+(pypi.ok?bdg('OK','green'):bdg('ERROR','red'))+'</div><div class="kpi-delta">'+(pypi.count?fmt(pypi.count)+' entries':'')+'</div></div>'+
+'<div class="kpi'+(!npm.ok?' danger':'')+'"><div class="kpi-lbl">NPM Feed</div><div class="kpi-val" style="font-size:20px">'+(npm.ok?bdg('OK','green'):bdg('ERROR','red'))+'</div><div class="kpi-delta">'+(npm.entry_count?fmt(npm.entry_count)+' entries':'')+'</div></div>'+
+'<div class="kpi'+(!pypi.ok?' danger':'')+'"><div class="kpi-lbl">PyPI Feed</div><div class="kpi-val" style="font-size:20px">'+(pypi.ok?bdg('OK','green'):bdg('ERROR','red'))+'</div><div class="kpi-delta">'+(pypi.entry_count?fmt(pypi.entry_count)+' entries':'')+'</div></div>'+
+'<div class="kpi'+(totalDetections>0?' danger':'')+'"><div class="kpi-lbl">Detections (7d)</div><div class="kpi-val" style="font-size:20px">'+fmt(totalDetections)+'</div><div class="kpi-delta">'+(detections.length>0?detections.length+' packages':'')+'</div></div>'+
 '<div class="kpi"><div class="kpi-lbl">Last Refreshed</div><div class="kpi-val" style="font-size:15px;line-height:1.4">'+fmtDate(npm.last_updated)+'</div></div>'+
 '</div>'+
-'<div class="card">'+
-'<div class="card-title">Aikido Malware Intelligence</div>'+
+(detections.length>0?
+'<div class="card" style="margin-bottom:16px">'+
+'<div class="card-title" style="color:var(--er)">⚠️ Recent Detections (Last 7 Days)</div>'+
+'<div class="tbl-wrap"><table><thead><tr><th>Package</th><th>Detections</th></tr></thead><tbody>'+
+detections.map(function(d){
+  return'<tr><td><strong style="color:var(--er)">'+h(d.package)+'</strong></td><td>'+fmt(d.count)+'</td></tr>';
+}).join('')+
+'</tbody></table></div></div>':'')+
+'<div class="card" style="margin-bottom:16px">'+
+'<div class="flex" style="justify-content:space-between;align-items:center;margin-bottom:14px">'+
+'<div class="card-title" style="margin:0">Malware Feed Entries</div>'+
+'<button class="btn btn-primary btn-sm" id="refresh-feed-btn" onclick="refreshFeed(this)">&#8635; Refresh Feed</button>'+
+'</div>'+
 '<p style="font-size:13px;color:var(--tx3);margin-bottom:14px">PMG Cloud mirrors the Aikido malware feed for offline and air-gapped environments. Feed endpoints: <code>/malware_predictions.json</code> and <code>/malware_pypi.json</code>.</p>'+
-'<button class="btn btn-primary" id="refresh-feed-btn" onclick="refreshFeed(this)">&#8635; Refresh Feed Now</button>'+
+'<div class="filter-bar" style="margin-bottom:12px">'+
+'<input class="input" placeholder="Search package name..." value="'+h(search)+'" onchange="S.malwareSearch=this.value;S.malwareOffset=0;loadPage()" style="flex:1;max-width:300px">'+
+'<select onchange="S.malwareEco=this.value;S.malwareOffset=0;loadPage()">'+
+'<option value="">All Ecosystems</option>'+
+'<option value="npm"'+(eco==='npm'?' selected':'')+'>NPM</option>'+
+'<option value="pypi"'+(eco==='pypi'?' selected':'')+'>PyPI</option>'+
+'</select>'+
+'<button class="btn btn-sm btn-ghost" onclick="S.malwareSearch=\'\';S.malwareEco=\'\';S.malwareOffset=0;loadPage()">Clear</button>'+
+'</div>'+
+'<div class="tbl-wrap"><table><thead><tr><th>Package</th><th>Ecosystem</th><th>Version</th><th>Reason</th></tr></thead><tbody>'+
+(entries.length?entries.map(function(e){
+  var pkg=e.package||'—';
+  var ecosystem=e.ecosystem||'—';
+  var version=e.version||'*';
+  var reason=e.reason||'—';
+  return'<tr><td><strong>'+h(pkg)+'</strong></td><td>'+ecoBdg(ecosystem)+'</td><td class="mono" style="font-size:11px">'+h(version)+'</td><td style="font-size:12px;color:var(--tx3)">'+h(reason)+'</td></tr>';
+}).join(''):'<tr><td colspan="4" class="empty">No entries found</td></tr>')+
+'</tbody></table></div>'+
+'<div class="pager" style="margin-top:12px">'+
+'<button class="btn btn-sm btn-ghost" onclick="malwarePrev()"'+(offset===0?' disabled':'')+'>&#8592; Prev</button>'+
+'<span class="info">Showing '+(offset+1)+'&ndash;'+(offset+entries.length)+' of '+fmt(total)+'</span>'+
+'<button class="btn btn-sm btn-ghost" onclick="malwareNext()"'+((offset+entries.length)>=total?' disabled':'')+'>Next &#8594;</button>'+
+'</div>'+
 '</div>';
 }
 
+function malwarePrev(){S.malwareOffset=Math.max(0,(S.malwareOffset||0)-50);loadPage();}
+function malwareNext(){S.malwareOffset=(S.malwareOffset||0)+50;loadPage();}
+
 async function refreshFeed(btn){
   btn.disabled=true;btn.textContent='Refreshing…';
-  try{var r=await fetch('/api/malware/refresh',{method:'POST'});if(!r.ok)throw new Error(await r.text());await renderMalware();}
-  catch(e){showToast('Refresh failed: '+e.message,'error');btn.disabled=false;btn.textContent='↻ Refresh Feed Now';}
+  try{var r=await fetch('/api/malware/refresh',{method:'POST'});if(!r.ok)throw new Error(await r.text());S.malwareOffset=0;await renderMalware();}
+  catch(e){showToast('Refresh failed: '+e.message,'error');btn.disabled=false;btn.textContent='↻ Refresh Feed';}
 }
 
 /* ---- AGENTS ---- */

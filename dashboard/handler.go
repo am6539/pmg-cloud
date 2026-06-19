@@ -482,6 +482,127 @@ func Handler(dataDir string, deps HandlerDeps) http.Handler {
 		writeJSON(w, mirror.Status())
 	})
 
+	// API: malware entries with search/filter
+	mux.HandleFunc("/api/malware/entries", func(w http.ResponseWriter, r *http.Request) {
+		s, ok := sessionFromContext(r)
+		if ok && s.Role == RoleEditor {
+			http.Error(w, `{"error":"forbidden"}`, http.StatusForbidden)
+			return
+		}
+		ecosystem := r.URL.Query().Get("ecosystem") // npm or pypi
+		search := strings.ToLower(r.URL.Query().Get("search"))
+		limit := 50
+		offset := 0
+		if l := r.URL.Query().Get("limit"); l != "" {
+			if v, err := strconv.Atoi(l); err == nil && v > 0 && v <= 1000 {
+				limit = v
+			}
+		}
+		if o := r.URL.Query().Get("offset"); o != "" {
+			if v, err := strconv.Atoi(o); err == nil && v >= 0 {
+				offset = v
+			}
+		}
+
+		var entries []map[string]interface{}
+		if ecosystem == "npm" || ecosystem == "" {
+			data, _ := mirror.NPMFeed(r.Context())
+			if data != nil {
+				var npmEntries []map[string]interface{}
+				json.Unmarshal(data, &npmEntries)
+				entries = append(entries, npmEntries...)
+			}
+		}
+		if ecosystem == "pypi" || ecosystem == "" {
+			data, _ := mirror.PyPIFeed(r.Context())
+			if data != nil {
+				var pypiEntries []map[string]interface{}
+				json.Unmarshal(data, &pypiEntries)
+				entries = append(entries, pypiEntries...)
+			}
+		}
+
+		// Filter by search
+		if search != "" {
+			filtered := make([]map[string]interface{}, 0)
+			for _, e := range entries {
+				pkg, _ := e["package"].(string)
+				if strings.Contains(strings.ToLower(pkg), search) {
+					filtered = append(filtered, e)
+				}
+			}
+			entries = filtered
+		}
+
+		// Paginate
+		total := len(entries)
+		if offset >= total {
+			offset = 0
+		}
+		end := offset + limit
+		if end > total {
+			end = total
+		}
+		paginated := entries[offset:end]
+
+		writeJSON(w, map[string]interface{}{
+			"entries": paginated,
+			"total":   total,
+			"offset":  offset,
+			"limit":   limit,
+		})
+	})
+
+	// API: malware statistics
+	mux.HandleFunc("/api/malware/stats", func(w http.ResponseWriter, r *http.Request) {
+		s, ok := sessionFromContext(r)
+		if ok && s.Role == RoleEditor {
+			http.Error(w, `{"error":"forbidden"}`, http.StatusForbidden)
+			return
+		}
+		_, npmStatus := mirror.NPMFeed(r.Context())
+		_, pypiStatus := mirror.PyPIFeed(r.Context())
+
+		// Count entries per ecosystem
+		npmCount := npmStatus.EntryCount
+		pypiCount := pypiStatus.EntryCount
+
+		// Get recent detections
+		events, _ := reader.LoadEvents(7) // last 7 days
+		malwareByPackage := make(map[string]int)
+		for _, ev := range events {
+			if ev.IsMalware != nil && *ev.IsMalware && ev.PackageName != "" {
+				malwareByPackage[ev.PackageName]++
+			}
+		}
+
+		// Top 10 detected malware
+		type detection struct {
+			Package string `json:"package"`
+			Count   int    `json:"count"`
+		}
+		detections := make([]detection, 0)
+		for pkg, count := range malwareByPackage {
+			detections = append(detections, detection{Package: pkg, Count: count})
+		}
+		sort.Slice(detections, func(i, j int) bool { return detections[i].Count > detections[j].Count })
+		if len(detections) > 10 {
+			detections = detections[:10]
+		}
+
+		writeJSON(w, map[string]interface{}{
+			"npm": map[string]interface{}{
+				"total":        npmCount,
+				"last_updated": npmStatus.LastUpdated,
+			},
+			"pypi": map[string]interface{}{
+				"total":        pypiCount,
+				"last_updated": pypiStatus.LastUpdated,
+			},
+			"detections": detections,
+		})
+	})
+
 	// Config management APIs — only when Config is wired.
 	if deps.Config != nil {
 		mux.HandleFunc("/api/config", func(w http.ResponseWriter, r *http.Request) {
