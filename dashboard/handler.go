@@ -612,9 +612,11 @@ func Handler(dataDir string, deps HandlerDeps) http.Handler {
 		if search != "" {
 			filtered := make([]map[string]interface{}, 0)
 			for _, e := range entries {
-				// Try both 'name' and 'package' field names (Aikido uses 'name')
+				// Try all possible field names: package_name, name, package
 				var pkg string
-				if n, ok := e["name"].(string); ok {
+				if n, ok := e["package_name"].(string); ok {
+					pkg = n
+				} else if n, ok := e["name"].(string); ok {
 					pkg = n
 				} else if p, ok := e["package"].(string); ok {
 					pkg = p

@@ -1096,7 +1096,7 @@ detections.map(function(d){
 '</div>'+
 '<div class="tbl-wrap"><table><thead><tr><th>Package</th><th>Ecosystem</th><th>Version</th></tr></thead><tbody>'+
 (entries.length?entries.map(function(e){
-  var pkg=(e.name||e.package)||'—';
+  var pkg=(e.package_name||e.name||e.package)||'—';
   var ecosystem=e.ecosystem||'—';
   var version=e.version||'*';
   return'<tr><td><strong>'+h(pkg)+'</strong></td><td>'+ecoBdg(ecosystem)+'</td><td class="mono" style="font-size:11px">'+h(version)+'</td></tr>';
