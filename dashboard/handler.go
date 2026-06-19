@@ -510,7 +510,10 @@ func Handler(dataDir string, deps HandlerDeps) http.Handler {
 			if data != nil {
 				var npmEntries []map[string]interface{}
 				if err := json.Unmarshal(data, &npmEntries); err == nil {
-					entries = append(entries, npmEntries...)
+					for _, e := range npmEntries {
+						e["ecosystem"] = "npm"
+						entries = append(entries, e)
+					}
 				}
 			}
 		}
@@ -519,7 +522,10 @@ func Handler(dataDir string, deps HandlerDeps) http.Handler {
 			if data != nil {
 				var pypiEntries []map[string]interface{}
 				if err := json.Unmarshal(data, &pypiEntries); err == nil {
-					entries = append(entries, pypiEntries...)
+					for _, e := range pypiEntries {
+						e["ecosystem"] = "pypi"
+						entries = append(entries, e)
+					}
 				}
 			}
 		}
