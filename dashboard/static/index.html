@@ -1336,7 +1336,8 @@ async function removeAgent(id,hostname){
   try{
     var r=await fetch('/api/agents/'+id,{method:'DELETE'});
     if(!r.ok){var d=await r.json().catch(function(){return{};});showToast(d.error||'Error','error');return;}
-    await renderAgents();
+    showToast('Agent removed','success');
+    loadPage();
   }catch(e){showToast('Error: '+e.message,'error');}
 }
 
