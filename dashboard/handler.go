@@ -509,16 +509,18 @@ func Handler(dataDir string, deps HandlerDeps) http.Handler {
 			data, _ := mirror.NPMFeed(r.Context())
 			if data != nil {
 				var npmEntries []map[string]interface{}
-				json.Unmarshal(data, &npmEntries)
-				entries = append(entries, npmEntries...)
+				if err := json.Unmarshal(data, &npmEntries); err == nil {
+					entries = append(entries, npmEntries...)
+				}
 			}
 		}
 		if ecosystem == "pypi" || ecosystem == "" {
 			data, _ := mirror.PyPIFeed(r.Context())
 			if data != nil {
 				var pypiEntries []map[string]interface{}
-				json.Unmarshal(data, &pypiEntries)
-				entries = append(entries, pypiEntries...)
+				if err := json.Unmarshal(data, &pypiEntries); err == nil {
+					entries = append(entries, pypiEntries...)
+				}
 			}
 		}
 

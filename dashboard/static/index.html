@@ -1064,6 +1064,9 @@ async function renderMalware(){
   var entries=entriesData.entries||[];
   var total=entriesData.total||0;
 
+  // Debug: log first entry to see structure
+  if(entries.length>0)console.log('First malware entry:',entries[0]);
+
   document.getElementById('content').innerHTML=
 '<div class="kpi-grid">'+
 '<div class="kpi'+(!npm.ok?' danger':'')+'"><div class="kpi-lbl">NPM Feed</div><div class="kpi-val" style="font-size:20px">'+(npm.ok?bdg('OK','green'):bdg('ERROR','red'))+'</div><div class="kpi-delta">'+(npm.entry_count?fmt(npm.entry_count)+' entries':'')+'</div></div>'+
