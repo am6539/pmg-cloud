@@ -1429,7 +1429,7 @@ func Handler(dataDir string, deps HandlerDeps) http.Handler {
 		// GET /install.sh — unauthenticated, serves dynamic install script (Linux/macOS)
 		mux.HandleFunc("/install.sh", func(w http.ResponseWriter, r *http.Request) {
 			scheme := "http"
-			if r.TLS != nil {
+			if r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https" {
 				scheme = "https"
 			}
 			serverURL := scheme + "://" + r.Host
