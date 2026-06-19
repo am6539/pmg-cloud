@@ -295,6 +295,7 @@ func ComputePackageStats(events []Event) []PackageStat {
 
 // EndpointInfo is a merged view of an enrolled agent + event-derived stats.
 type EndpointInfo struct {
+	AgentID         string     `json:"agent_id,omitempty"` // from enrollment; used for remove operation
 	EndpointID      string     `json:"endpoint_id"`
 	Hostname        string     `json:"hostname"`
 	Label           string     `json:"label,omitempty"`
@@ -364,6 +365,7 @@ func MergeAgentEndpoints(agents []Agent, events []Event) []EndpointInfo {
 			BlockedPackages: ed.blocked,
 		}
 		if hasAgent {
+			ei.AgentID = a.ID
 			ei.Hostname = a.Hostname
 			ei.Label = a.Label
 			ei.OS = a.OS
@@ -385,6 +387,7 @@ func MergeAgentEndpoints(agents []Agent, events []Event) []EndpointInfo {
 	for _, a := range agents {
 		if _, seen := m[a.ID]; !seen {
 			ei := EndpointInfo{
+				AgentID:     a.ID,
 				EndpointID:  a.ID,
 				Hostname:    a.Hostname,
 				Label:       a.Label,
