@@ -528,7 +528,13 @@ func Handler(dataDir string, deps HandlerDeps) http.Handler {
 		if search != "" {
 			filtered := make([]map[string]interface{}, 0)
 			for _, e := range entries {
-				pkg, _ := e["package"].(string)
+				// Try both 'name' and 'package' field names (Aikido uses 'name')
+				var pkg string
+				if n, ok := e["name"].(string); ok {
+					pkg = n
+				} else if p, ok := e["package"].(string); ok {
+					pkg = p
+				}
 				if strings.Contains(strings.ToLower(pkg), search) {
 					filtered = append(filtered, e)
 				}
