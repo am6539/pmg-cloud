@@ -335,7 +335,7 @@ func Handler(dataDir string, deps HandlerDeps) http.Handler {
 		ecoMap := make(map[string]int)
 
 		for _, ev := range events {
-			if ev.EventType != "package_decision" || ev.PackageName == "" {
+			if ev.EventType != "PACKAGE_DECISION" || ev.PackageName == "" {
 				continue
 			}
 			k := pkgKey{ev.Ecosystem, ev.PackageName}
@@ -355,7 +355,7 @@ func Handler(dataDir string, deps HandlerDeps) http.Handler {
 			}
 			pkg := *p
 			pkg["count"] = pkg["count"].(int) + 1
-			if ev.Action == "blocked" {
+			if ev.Action == "BLOCKED" {
 				pkg["blocked_count"] = pkg["blocked_count"].(int) + 1
 			}
 			if ev.IsMalware != nil && *ev.IsMalware {
