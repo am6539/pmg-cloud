@@ -1720,12 +1720,27 @@ func Handler(dataDir string, deps HandlerDeps) http.Handler {
 					http.Error(w, `{"error":"only admins can delete agents"}`, http.StatusForbidden)
 					return
 				}
-				if err := enrollment.RemoveAgent(agentID); err != nil {
-					http.Error(w, err.Error(), http.StatusNotFound)
-					return
-				}
-				if deps.Audit != nil {
-					deps.Audit.Log("agent_removed", agentID, "")
+
+				// Check if agent exists in enrollment store
+				agent, exists := enrollment.GetAgentByID(agentID)
+				if exists {
+					// Regular enrolled agent - mark as removed
+					if err := enrollment.RemoveAgent(agentID); err != nil {
+						http.Error(w, err.Error(), http.StatusInternalServerError)
+						return
+					}
+					if deps.Audit != nil {
+						deps.Audit.Log("agent_removed", agentID, "")
+					}
+				} else {
+					// Orphan endpoint (events only, no enrollment) - delete events directly
+					if err := reader.DeleteEventsByEndpointID(dataDir, agentID); err != nil {
+						http.Error(w, err.Error(), http.StatusInternalServerError)
+						return
+					}
+					if deps.Audit != nil {
+						deps.Audit.Log("orphan_endpoint_deleted", agentID, "")
+					}
 				}
 				w.WriteHeader(http.StatusNoContent)
 			default:
