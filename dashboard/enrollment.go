@@ -285,5 +285,7 @@ func (es *EnrollmentStore) RemoveAgent(id string) error {
 			return es.save()
 		}
 	}
-	return fmt.Errorf("agent not found")
+	// Orphan endpoint (events exist but no enrollment record) - return success
+	// since the goal is to mark as removed, and non-existent is effectively removed
+	return nil
 }
