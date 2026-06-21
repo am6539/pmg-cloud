@@ -1722,7 +1722,7 @@ func Handler(dataDir string, deps HandlerDeps) http.Handler {
 				}
 
 				// Check if agent exists in enrollment store
-				agent, exists := enrollment.GetAgentByID(agentID)
+				_, exists := enrollment.GetAgentByID(agentID)
 				if exists {
 					// Regular enrolled agent - mark as removed
 					if err := enrollment.RemoveAgent(agentID); err != nil {
