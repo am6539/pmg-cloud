@@ -1724,13 +1724,18 @@ func Handler(dataDir string, deps HandlerDeps) http.Handler {
 				// Check if agent exists in enrollment store
 				_, exists := enrollment.GetAgentByID(agentID)
 				if exists {
-					// Regular enrolled agent - mark as removed
+					// Regular enrolled agent - remove from enrollment AND delete events
 					if err := enrollment.RemoveAgent(agentID); err != nil {
 						http.Error(w, err.Error(), http.StatusInternalServerError)
 						return
 					}
+					// Also delete all events for this agent
+					if err := reader.DeleteEventsByEndpointID(dataDir, agentID); err != nil {
+						http.Error(w, err.Error(), http.StatusInternalServerError)
+						return
+					}
 					if deps.Audit != nil {
-						deps.Audit.Log("agent_removed", agentID, "")
+						deps.Audit.Log("agent_removed_with_events", agentID, "")
 					}
 				} else {
 					// Orphan endpoint (events only, no enrollment) - delete events directly
