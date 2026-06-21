@@ -697,8 +697,10 @@ async function renderEndpoints(){
   '<td>'+((ep.blocked_packages||0)>0?bdg(fmt(ep.blocked_packages),'red'):'0')+'</td>'+
   '<td style="font-size:12px;color:var(--tx3)">'+fmtDate(ep.last_seen)+'</td>'+
   '<td onclick="event.stopPropagation()">'+(S.me&&S.me.role==='admin'?
-    (ep.removed?'<button class="btn btn-sm btn-danger" onclick="deleteAgentEvents(\''+h(ep.endpoint_id)+'\')">Delete Events</button>':
-    '<button class="btn btn-sm btn-warning" onclick="removeAgent(\''+h(ep.endpoint_id)+'\',\''+h(ep.hostname)+'\')">Remove</button>')
+    '<div style="display:flex;gap:6px">'+
+    (!ep.removed?'<button class="btn btn-sm btn-warning" onclick="removeAgent(\''+h(ep.endpoint_id)+'\',\''+h(ep.hostname||ep.endpoint_id)+'\')">Remove</button>':'')+
+    '<button class="btn btn-sm btn-danger" onclick="deleteAgentEvents(\''+h(ep.endpoint_id)+'\')">Delete Events</button>'+
+    '</div>'
   :'')+'</td></tr>';
 }).join(''):'<tr><td colspan="11" class="empty">No endpoints</td></tr>')+
 '</tbody></table></div>'+versionCompliance(epList);
