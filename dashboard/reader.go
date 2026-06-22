@@ -356,6 +356,10 @@ func MergeAgentEndpoints(agents []Agent, events []Event) []EndpointInfo {
 	endpoints := make([]EndpointInfo, 0, len(m))
 	for epID, ed := range m {
 		a, hasAgent := agentMap[epID]
+		// Skip removed agents
+		if hasAgent && a.Removed {
+			continue
+		}
 		ei := EndpointInfo{
 			EndpointID:      epID,
 			FirstSeen:       ed.firstSeen,
@@ -385,6 +389,10 @@ func MergeAgentEndpoints(agents []Agent, events []Event) []EndpointInfo {
 
 	// also include enrolled agents that have zero events
 	for _, a := range agents {
+		// Skip removed agents
+		if a.Removed {
+			continue
+		}
 		if _, seen := m[a.ID]; !seen {
 			ei := EndpointInfo{
 				AgentID:     a.ID,
