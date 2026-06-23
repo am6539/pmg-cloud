@@ -348,14 +348,24 @@ func MergeAgentEndpoints(agents []Agent, events []Event) []EndpointInfo {
 		}
 	}
 
-	agentMap := make(map[string]Agent)
+	agentMap := make(map[string]Agent)   // keyed by agent ID
+	hostMap := make(map[string]Agent)    // keyed by hostname (lowercase)
 	for _, a := range agents {
-		agentMap[a.ID] = a
+		if !a.Removed {
+			agentMap[a.ID] = a
+			if a.Hostname != "" {
+				hostMap[strings.ToLower(a.Hostname)] = a
+			}
+		}
 	}
 
 	endpoints := make([]EndpointInfo, 0, len(m))
 	for epID, ed := range m {
+		// Try match by agent ID first, then by hostname (orphan endpoints)
 		a, hasAgent := agentMap[epID]
+		if !hasAgent {
+			a, hasAgent = hostMap[strings.ToLower(epID)]
+		}
 		// Skip removed agents
 		if hasAgent && a.Removed {
 			continue
@@ -388,12 +398,16 @@ func MergeAgentEndpoints(agents []Agent, events []Event) []EndpointInfo {
 	}
 
 	// also include enrolled agents that have zero events
+	// (exclude agents whose hostname already matched an orphan event epID)
 	for _, a := range agents {
 		// Skip removed agents
 		if a.Removed {
 			continue
 		}
-		if _, seen := m[a.ID]; !seen {
+		// Skip if already merged via UUID or hostname match
+		_, seenByID := m[a.ID]
+		_, seenByHostname := m[a.Hostname]
+		if !seenByID && !seenByHostname {
 			ei := EndpointInfo{
 				AgentID:     a.ID,
 				EndpointID:  a.ID,
