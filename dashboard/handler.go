@@ -335,7 +335,7 @@ func Handler(dataDir string, deps HandlerDeps) http.Handler {
 		ecoMap := make(map[string]int)
 
 		for _, ev := range events {
-			if ev.EventType != "PACKAGE_DECISION" || ev.PackageName == "" {
+			if strings.ToUpper(ev.EventType) != "PACKAGE_DECISION" || ev.PackageName == "" {
 				continue
 			}
 			k := pkgKey{ev.Ecosystem, ev.PackageName}
@@ -346,6 +346,7 @@ func Handler(dataDir string, deps HandlerDeps) http.Handler {
 					"ecosystem":              ev.Ecosystem,
 					"count":                  0,
 					"blocked_count":          0,
+					"allowed_count":          0,
 					"malware_count":          0,
 					"cooldown_blocked_count": 0,
 					"versions":               []string{},
@@ -355,8 +356,10 @@ func Handler(dataDir string, deps HandlerDeps) http.Handler {
 			}
 			pkg := *p
 			pkg["count"] = pkg["count"].(int) + 1
-			if ev.Action == "BLOCKED" {
+			if strings.ToUpper(ev.Action) == "BLOCKED" {
 				pkg["blocked_count"] = pkg["blocked_count"].(int) + 1
+			} else if strings.ToUpper(ev.Action) == "ALLOWED" {
+				pkg["allowed_count"] = pkg["allowed_count"].(int) + 1
 			}
 			if ev.IsMalware != nil && *ev.IsMalware {
 				pkg["malware_count"] = pkg["malware_count"].(int) + 1
@@ -397,13 +400,29 @@ func Handler(dataDir string, deps HandlerDeps) http.Handler {
 				"count": count,
 			})
 		}
-		sort.Slice(topEcosystems, func(i, j int) bool {
-			return topEcosystems[i]["count"].(int) > topEcosystems[j]["count"].(int)
-		})
+
+		// Summary stats
+		totalPkgs := len(pkgMap)
+		malwareCount, blockedCount, cleanCount := 0, 0, 0
+		for _, p := range topPackages {
+			if p["malware_count"].(int) > 0 {
+				malwareCount++
+			} else if p["blocked_count"].(int) > 0 {
+				blockedCount++
+			} else {
+				cleanCount++
+			}
+		}
 
 		writeJSON(w, map[string]interface{}{
-			"top_packages":    topPackages,
+			"top_packages":   topPackages,
 			"top_ecosystems": topEcosystems,
+			"summary": map[string]interface{}{
+				"total":   totalPkgs,
+				"malware": malwareCount,
+				"blocked": blockedCount,
+				"clean":   cleanCount,
+			},
 		})
 	})
 

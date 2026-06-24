@@ -283,7 +283,7 @@ function showToast(msg,type){
   setTimeout(function(){t.classList.remove('show');setTimeout(function(){if(t.parentNode)t.parentNode.removeChild(t);},220);},3000);
 }
 /* ---- STATE ---- */
-var S={page:'dashboard',group:'',days:30,from:'',to:'',useRange:false,evOffset:0,evFilter:{type:'',action:'',malware:''},pkgTab:0,malwareSearch:'',malwareEco:'',malwareOffset:0,dark:localStorage.dark==='1',groups:[],config:null,me:null,pendingUpdateVersion:null};
+var S={page:'dashboard',group:'',days:30,from:'',to:'',useRange:false,evOffset:0,evFilter:{type:'',action:'',malware:''},pkgTab:0,pkgSearch:'',pkgEcoFilter:'',malwareSearch:'',malwareEco:'',malwareOffset:0,dark:localStorage.dark==='1',groups:[],config:null,me:null,pendingUpdateVersion:null};
 
 document.addEventListener('DOMContentLoaded',function(){
   applyTheme();
@@ -810,17 +810,45 @@ function closeDrawer(){
 }
 
 /* ---- PACKAGES ---- */
-var _pkgs=[];
+var _pkgs=[],_pkgsAll=[];
 async function renderPackages(){
   var ps=await api('/api/package-stats?'+buildQ());
+  var summary=ps.summary||{};
+  var allPkgs=ps.top_packages||[];
+  _pkgsAll=allPkgs;
+  var search=(S.pkgSearch||'').toLowerCase();
+  var ecoFilter=S.pkgEcoFilter||'';
+  var filtered=allPkgs.filter(function(p){
+    if(ecoFilter&&(p.ecosystem||'').toUpperCase()!==ecoFilter.toUpperCase())return false;
+    if(search&&!(p.name||'').toLowerCase().includes(search))return false;
+    return true;
+  });
   document.getElementById('content').innerHTML=
+'<div class="kpi-grid" style="margin-bottom:16px">'+
+'<div class="kpi"><div class="kpi-lbl">Total Packages</div><div class="kpi-val" style="font-size:22px">'+fmt(summary.total||0)+'</div></div>'+
+'<div class="kpi"><div class="kpi-lbl">Clean</div><div class="kpi-val" style="font-size:22px;color:var(--ok)">'+fmt(summary.clean||0)+'</div></div>'+
+'<div class="kpi'+(summary.blocked>0?' warn':'')+'"><div class="kpi-lbl">Blocked</div><div class="kpi-val" style="font-size:22px;color:var(--wn)">'+fmt(summary.blocked||0)+'</div></div>'+
+'<div class="kpi'+(summary.malware>0?' danger':'')+'"><div class="kpi-lbl">Malware</div><div class="kpi-val" style="font-size:22px;color:var(--dn)">'+fmt(summary.malware||0)+'</div></div>'+
+'</div>'+
+'<div class="filter-bar" style="margin-bottom:12px">'+
+'<input class="input" placeholder="Search package..." value="'+h(S.pkgSearch||'')+'" oninput="S.pkgSearch=this.value;renderPackages()" style="flex:1;max-width:280px">'+
+'<select onchange="S.pkgEcoFilter=this.value;renderPackages()">'+
+'<option value="">All Ecosystems</option>'+
+'<option value="NPM"'+(ecoFilter==='NPM'?' selected':'')+'>NPM</option>'+
+'<option value="PYPI"'+(ecoFilter==='PYPI'?' selected':'')+'>PyPI</option>'+
+'<option value="GO"'+(ecoFilter==='GO'?' selected':'')+'>Go</option>'+
+'<option value="MAVEN"'+(ecoFilter==='MAVEN'?' selected':'')+'>Maven</option>'+
+'<option value="RUBYGEMS"'+(ecoFilter==='RUBYGEMS'?' selected':'')+'>RubyGems</option>'+
+'</select>'+
+'<button class="btn btn-sm btn-ghost" onclick="S.pkgSearch=\'\';S.pkgEcoFilter=\'\';renderPackages()">Clear</button>'+
+'</div>'+
 '<div class="tabs">'+
-'<button class="tab'+(S.pkgTab===0?' active':'')+'" onclick="S.pkgTab=0;renderPackages()">Top Packages</button>'+
-'<button class="tab'+(S.pkgTab===1?' active':'')+'" onclick="S.pkgTab=1;renderPackages()">Risk Leaderboard</button>'+
+'<button class="tab'+(S.pkgTab===0?' active':'')+'" onclick="S.pkgTab=0;renderPackages()">All Packages</button>'+
+'<button class="tab'+(S.pkgTab===1?' active':'')+'" onclick="S.pkgTab=1;renderPackages()">Threats</button>'+
 '<button class="tab'+(S.pkgTab===2?' active':'')+'" onclick="S.pkgTab=2;renderPackages()">Ecosystems</button>'+
 '</div><div id="pkg-inner"></div>';
-  if(S.pkgTab===0)renderTopPkgs(ps.top_packages||[]);
-  else if(S.pkgTab===1)renderRisk(ps.top_packages||[]);
+  if(S.pkgTab===0)renderTopPkgs(filtered);
+  else if(S.pkgTab===1)renderThreats(filtered);
   else renderEco(ps.top_ecosystems||[]);
 }
 
@@ -840,40 +868,48 @@ function pkgStatusCell(p){
   if(!b.length)b.push(bdg('Clean','green'));
   return b.join(' ');
 }
+function pkgRowColor(p){
+  if((p.malware_count||0)>0)return'background:rgba(220,38,38,0.06);border-left:3px solid var(--dn)';
+  if((p.blocked_count||0)>0)return'background:rgba(245,158,11,0.06);border-left:3px solid var(--wn)';
+  return'border-left:3px solid var(--ok)';
+}
 function renderTopPkgs(pkgs){
   _pkgs=pkgs;
   document.getElementById('pkg-inner').innerHTML=
-'<div class="tbl-wrap"><table><thead><tr><th>Package</th><th>Ecosystem</th><th>Versions</th><th>Status</th><th>Installs</th><th>Blocked</th><th>Malware</th><th>Last Seen</th></tr></thead><tbody>'+
+'<div class="tbl-wrap"><table><thead><tr><th>Package</th><th>Ecosystem</th><th>Versions</th><th>Status</th><th>Total</th><th>Allowed</th><th>Blocked</th><th>Last Seen</th></tr></thead><tbody>'+
 (pkgs.length?pkgs.map(function(p,i){
-  return'<tr class="clickable" onclick="openPkgModal('+i+')">'+
+  return'<tr class="clickable" onclick="openPkgModal('+i+')" style="'+pkgRowColor(p)+'">'+
   '<td><strong>'+h(p.name)+'</strong></td>'+
   '<td>'+ecoBdg(p.ecosystem)+'</td>'+
   '<td>'+pkgVersionsCell(p)+'</td>'+
   '<td>'+pkgStatusCell(p)+'</td>'+
   '<td>'+fmt(p.count)+'</td>'+
-  '<td>'+((p.blocked_count||0)>0?bdg(fmt(p.blocked_count),'red'):'0')+'</td>'+
-  '<td>'+((p.malware_count||0)>0?bdg(fmt(p.malware_count),'red'):'<span style="color:var(--tx4)">0</span>')+'</td>'+
+  '<td style="color:var(--ok)">'+fmt(p.allowed_count||0)+'</td>'+
+  '<td>'+((p.blocked_count||0)>0?bdg(fmt(p.blocked_count),'red'):'<span style="color:var(--tx4)">0</span>')+'</td>'+
   '<td style="font-size:12px;color:var(--tx3)">'+fmtDate(p.last_seen)+'</td></tr>';
-}).join(''):'<tr><td colspan="8" class="empty">No data</td></tr>')+
+}).join(''):'<tr><td colspan="8" class="empty">No packages found</td></tr>')+
 '</tbody></table></div>';
 }
 
-function renderRisk(pkgs){
-  var sorted=pkgs.filter(function(p){return p.count>0;}).map(function(p){
-    return Object.assign({},p,{risk:Math.round((p.blocked_count||0)/p.count*100)});
-  }).sort(function(a,b){return b.risk-a.risk;});
-  _pkgs=sorted;
+function renderThreats(pkgs){
+  var threats=pkgs.filter(function(p){return(p.malware_count||0)>0||(p.blocked_count||0)>0;});
+  _pkgs=threats;
   document.getElementById('pkg-inner').innerHTML=
-'<div class="tbl-wrap"><table><thead><tr><th>Package</th><th>Ecosystem</th><th>Block Rate</th><th>Blocked</th><th>Total</th></tr></thead><tbody>'+
-(sorted.length?sorted.map(function(p,i){
-  var riskColor=p.risk>50?'var(--dn)':p.risk>20?'var(--wn)':'var(--pr)';
-  return'<tr class="clickable" onclick="openPkgModal('+i+')">'+
-  '<td><strong>'+h(p.name)+'</strong></td><td>'+ecoBdg(p.ecosystem)+'</td>'+
+'<div class="tbl-wrap"><table><thead><tr><th>Package</th><th>Ecosystem</th><th>Threat</th><th>Block Rate</th><th>Blocked</th><th>Total</th><th>Last Seen</th></tr></thead><tbody>'+
+(threats.length?threats.map(function(p,i){
+  var rate=p.count>0?Math.round((p.blocked_count||0)/p.count*100):0;
+  var rateColor=rate>50?'var(--dn)':rate>20?'var(--wn)':'var(--tx3)';
+  return'<tr class="clickable" onclick="openPkgModal('+i+')" style="'+pkgRowColor(p)+'">'+
+  '<td><strong>'+h(p.name)+'</strong></td>'+
+  '<td>'+ecoBdg(p.ecosystem)+'</td>'+
+  '<td>'+pkgStatusCell(p)+'</td>'+
   '<td><div class="flex" style="gap:6px;min-width:80px">'+
-  '<div class="bar-wrap"><div class="bar-fill" style="width:'+p.risk+'%;background:'+riskColor+'"></div></div>'+
-  '<span style="font-size:12px;font-weight:600;color:'+riskColor+'">'+p.risk+'%</span></div></td>'+
-  '<td>'+bdg(fmt(p.blocked_count||0),'red')+'</td><td>'+fmt(p.count)+'</td></tr>';
-}).join(''):'<tr><td colspan="5" class="empty">No data</td></tr>')+
+  '<div class="bar-wrap"><div class="bar-fill" style="width:'+rate+'%;background:'+rateColor+'"></div></div>'+
+  '<span style="font-size:12px;font-weight:600;color:'+rateColor+'">'+rate+'%</span></div></td>'+
+  '<td>'+bdg(fmt(p.blocked_count||0),'red')+'</td>'+
+  '<td>'+fmt(p.count)+'</td>'+
+  '<td style="font-size:12px;color:var(--tx3)">'+fmtDate(p.last_seen)+'</td></tr>';
+}).join(''):'<tr><td colspan="7" class="empty">No threats detected</td></tr>')+
 '</tbody></table></div>';
 }
 
