@@ -203,9 +203,11 @@ func Aggregate(events []Event) Stats {
 		if ev.InvocationID != "" {
 			invMap[ev.InvocationID] = struct{}{}
 		}
-		if ev.EventType == "package_decision" {
+		evType := strings.ToUpper(ev.EventType)
+		action := strings.ToUpper(ev.Action)
+		if evType == "PACKAGE_DECISION" {
 			analyzed++
-			if ev.Action == "blocked" {
+			if action == "BLOCKED" {
 				blocked++
 			}
 			if ev.IsMalware != nil && *ev.IsMalware {
@@ -217,8 +219,15 @@ func Aggregate(events []Event) Stats {
 				ecoMap[ev.Ecosystem]++
 			}
 		}
-		if ev.EventType == "session_summary" && ev.Outcome != "" {
-			outMap[ev.Outcome]++
+		if evType == "SESSION_SUMMARY" {
+			analyzed += uint64(ev.TotalAnalyzed)
+			blocked += int(ev.BlockedCount)
+			if ev.Outcome != "" {
+				outMap[ev.Outcome]++
+			}
+			if ev.PackageManager != "" {
+				ecoMap[ev.PackageManager] += int(ev.TotalAnalyzed)
+			}
 		}
 		day := ev.ReceivedAt.UTC().Format("2006-01-02")
 		dayMap[day]++
@@ -266,7 +275,7 @@ func ComputePackageStats(events []Event) []PackageStat {
 	}
 	m := make(map[key]*PackageStat)
 	for _, ev := range events {
-		if ev.EventType != "package_decision" || ev.PackageName == "" {
+		if strings.ToUpper(ev.EventType) != "PACKAGE_DECISION" || ev.PackageName == "" {
 			continue
 		}
 		k := key{ev.Ecosystem, ev.PackageName}
@@ -275,9 +284,9 @@ func ComputePackageStats(events []Event) []PackageStat {
 			ps = &PackageStat{Ecosystem: ev.Ecosystem, Name: ev.PackageName}
 			m[k] = ps
 		}
-		if ev.Action == "blocked" {
+		if strings.ToUpper(ev.Action) == "BLOCKED" {
 			ps.Blocked++
-		} else if ev.Action == "allowed" {
+		} else if strings.ToUpper(ev.Action) == "ALLOWED" {
 			ps.Allowed++
 		}
 	}
@@ -340,9 +349,9 @@ func MergeAgentEndpoints(agents []Agent, events []Event) []EndpointInfo {
 		if ev.InvocationID != "" {
 			ed.invocations[ev.InvocationID] = struct{}{}
 		}
-		if ev.EventType == "package_decision" {
+		if strings.ToUpper(ev.EventType) == "PACKAGE_DECISION" {
 			ed.totalPkgs++
-			if ev.Action == "blocked" {
+			if strings.ToUpper(ev.Action) == "BLOCKED" {
 				ed.blocked++
 			}
 		}
@@ -481,7 +490,7 @@ func ComputeCIStats(events []Event) CIStats {
 		}
 		total++
 		blocked := 0
-		if ev.EventType == "package_decision" && ev.Action == "blocked" {
+		if strings.ToUpper(ev.EventType) == "PACKAGE_DECISION" && strings.ToUpper(ev.Action) == "BLOCKED" {
 			blocked = 1
 		}
 
