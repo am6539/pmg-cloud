@@ -1528,9 +1528,14 @@ func Handler(dataDir string, deps HandlerDeps) http.Handler {
 				}
 			}
 
+			existing, isReenroll := enrollment.FindActiveAgentByHostnameAndIP(req.Hostname, req.LocalIP)
+
 			var plainKey string
 			var apiKeyID string
 			if deps.Groups != nil && groupID != "" {
+				if isReenroll && existing.APIKeyID != "" && existing.GroupID != "" {
+					_ = deps.Groups.RevokeAPIKey(existing.GroupID, existing.APIKeyID) // best-effort; old key may already be gone
+				}
 				keyName := req.Hostname + " (enrolled)"
 				pk, key, kErr := deps.Groups.CreateAPIKey(groupID, keyName)
 				if kErr != nil {
@@ -1541,26 +1546,39 @@ func Handler(dataDir string, deps HandlerDeps) http.Handler {
 				apiKeyID = key.ID
 			}
 
-			agentID := genID()
-			agent := Agent{
-				ID:         agentID,
-				Hostname:   req.Hostname,
-				OS:         req.OS,
-				Arch:       req.Arch,
-				PMGVersion: req.PMGVersion,
-				RemoteIP:   ip,
-				LocalIP:    req.LocalIP,
-				GroupID:    groupID,
-				APIKeyID:   apiKeyID,
-				EnrolledAt: time.Now().UTC(),
-			}
-			if err := enrollment.RegisterAgent(agent); err != nil {
-				http.Error(w, "internal error", http.StatusInternalServerError)
-				return
+			var agentID string
+			if isReenroll {
+				agentID = existing.ID
+				if err := enrollment.ReenrollAgent(agentID, req.OS, req.Arch, req.PMGVersion, ip, req.LocalIP, groupID, apiKeyID); err != nil {
+					http.Error(w, "internal error", http.StatusInternalServerError)
+					return
+				}
+			} else {
+				agentID = genID()
+				agent := Agent{
+					ID:         agentID,
+					Hostname:   req.Hostname,
+					OS:         req.OS,
+					Arch:       req.Arch,
+					PMGVersion: req.PMGVersion,
+					RemoteIP:   ip,
+					LocalIP:    req.LocalIP,
+					GroupID:    groupID,
+					APIKeyID:   apiKeyID,
+					EnrolledAt: time.Now().UTC(),
+				}
+				if err := enrollment.RegisterAgent(agent); err != nil {
+					http.Error(w, "internal error", http.StatusInternalServerError)
+					return
+				}
 			}
 
 			if deps.Audit != nil {
-				deps.Audit.Log("agent_enrolled", req.Hostname,
+				action := "agent_enrolled"
+				if isReenroll {
+					action = "agent_reenrolled"
+				}
+				deps.Audit.Log(action, req.Hostname,
 					fmt.Sprintf("ip=%s os=%s arch=%s", ip, req.OS, req.Arch))
 			}
 
