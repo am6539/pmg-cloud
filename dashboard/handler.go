@@ -1528,6 +1528,11 @@ func Handler(dataDir string, deps HandlerDeps) http.Handler {
 				}
 			}
 
+			// Lookup and the eventual ReenrollAgent/RegisterAgent call below are not
+			// one atomic operation, so two concurrent enrolls from the same machine
+			// could both miss and both create a row. Accepted: enrollment is a
+			// manual, human-paced action, rate-limited per IP above, against a
+			// single-process file-backed store.
 			existing, isReenroll := enrollment.FindActiveAgentByHostnameAndIP(req.Hostname, req.LocalIP)
 
 			var plainKey string
