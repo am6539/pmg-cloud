@@ -34,3 +34,6 @@ Thumbs.db
 *.swp
 *.swo
 *~
+
+# Subagent-driven-development scratch (progress ledger, not project state)
+.superpowers/

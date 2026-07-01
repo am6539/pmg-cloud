@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 )
@@ -217,6 +218,50 @@ func (es *EnrollmentStore) GetAgentByID(id string) (Agent, bool) {
 		}
 	}
 	return Agent{}, false
+}
+
+// FindActiveAgentByHostnameAndIP returns the first non-removed agent whose
+// hostname (case-insensitive) and local IP both match. Used to detect a
+// re-enrolling machine so /api/enroll can update it instead of creating a
+// duplicate. Hostname alone is not a reliable identifier — distinct
+// physical machines can share a hostname — so an empty localIP always
+// misses rather than risk merging unrelated agents.
+func (es *EnrollmentStore) FindActiveAgentByHostnameAndIP(hostname, localIP string) (Agent, bool) {
+	if localIP == "" {
+		return Agent{}, false
+	}
+	es.mu.RLock()
+	defer es.mu.RUnlock()
+	for _, a := range es.data.Agents {
+		if a.Removed {
+			continue
+		}
+		if strings.EqualFold(a.Hostname, hostname) && a.LocalIP == localIP {
+			return a, true
+		}
+	}
+	return Agent{}, false
+}
+
+// ReenrollAgent updates an existing agent's connection/enrollment metadata
+// in place. ID, EnrolledAt, and Label are left untouched so re-enrollment
+// history and any admin-assigned name survive.
+func (es *EnrollmentStore) ReenrollAgent(id, os, arch, pmgVersion, remoteIP, localIP, groupID, apiKeyID string) error {
+	es.mu.Lock()
+	defer es.mu.Unlock()
+	for i, a := range es.data.Agents {
+		if a.ID == id {
+			es.data.Agents[i].OS = os
+			es.data.Agents[i].Arch = arch
+			es.data.Agents[i].PMGVersion = pmgVersion
+			es.data.Agents[i].RemoteIP = remoteIP
+			es.data.Agents[i].LocalIP = localIP
+			es.data.Agents[i].GroupID = groupID
+			es.data.Agents[i].APIKeyID = apiKeyID
+			return es.save()
+		}
+	}
+	return fmt.Errorf("agent not found")
 }
 
 // AssignAgentGroup updates an agent's group assignment.
