@@ -663,7 +663,7 @@ function evNext(){S.evOffset+=50;loadPage();}
 
 /* ---- ENDPOINTS ---- */
 var epList=[];
-var M30=30*60*1000,H2=2*60*60*1000;
+var M30=30*60*1000,H2=12*60*60*1000;
 function epStatus(last_seen){
   if(!last_seen)return{label:'Offline',dot:'dot-gray',color:'var(--tx4)'};
   var age=Date.now()-new Date(last_seen).getTime();
@@ -1169,7 +1169,7 @@ async function renderAgents(){
   var missing=agents.filter(function(a){return epStatus(a.last_seen).label==='Offline';});
   var missingBanner=missing.length?
     '<div class="alert-bar danger" style="display:flex;border-radius:9px;margin-bottom:16px;border:1px solid #fca5a5">'+
-    '&#9888;&#65039; <strong>'+missing.length+' agent'+(missing.length>1?'s':'')+' offline</strong> — last heartbeat &gt; 2 hours ago: '+
+    '&#9888;&#65039; <strong>'+missing.length+' agent'+(missing.length>1?'s':'')+' offline</strong> — last heartbeat &gt; 12 hours ago: '+
     missing.map(function(a){return'<code>'+h(a.hostname)+'</code>';}).join(', ')+'</div>':'';
   document.getElementById('content').innerHTML=
 missingBanner+
