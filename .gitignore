@@ -37,3 +37,6 @@ Thumbs.db
 
 # Subagent-driven-development scratch (progress ledger, not project state)
 .superpowers/
+
+# Local git worktrees for isolated feature work
+.worktrees/
