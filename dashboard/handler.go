@@ -1621,7 +1621,8 @@ func Handler(dataDir string, deps HandlerDeps) http.Handler {
 			})
 		})
 
-		// POST /api/heartbeat — agent-authenticated; updates LastSeen and returns update info
+		// POST /api/heartbeat — agent-authenticated; updates LastSeen, returns
+		// update info, and (fire-once) whether a scan was requested for this agent.
 		mux.HandleFunc("/api/heartbeat", func(w http.ResponseWriter, r *http.Request) {
 			if r.Method != http.MethodPost {
 				http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -1648,11 +1649,13 @@ func Handler(dataDir string, deps HandlerDeps) http.Handler {
 				LocalIP string `json:"local_ip"`
 			}
 			_ = json.NewDecoder(r.Body).Decode(&req)
+			scanRequested := false
 			if deps.Enrollment != nil {
 				if err := enrollment.TouchAgentByAPIKeyID(keyID, req.Version, req.LocalIP, realIP(r)); err != nil {
 					http.Error(w, "internal error", http.StatusInternalServerError)
 					return
 				}
+				scanRequested = enrollment.ConsumeScanRequest(keyID)
 			}
 			var info AgentUpdateInfo
 			if deps.Updates != nil && req.OS != "" && req.Arch != "" {
@@ -1663,11 +1666,70 @@ func Handler(dataDir string, deps HandlerDeps) http.Handler {
 				"version":          info.Version,
 				"download_url":     info.DownloadURL,
 				"sha256":           info.SHA256,
+				"scan_requested":   scanRequested,
 			}
 			if deps.Policy != nil {
 				resp["policy"] = deps.Policy.Get()
 			}
 			writeJSON(w, resp)
+		})
+
+		// POST /api/scan-report — agent-authenticated; records ecosystem scan
+		// progress/results reported by the agent's heartbeat-triggered scan.
+		mux.HandleFunc("/api/scan-report", func(w http.ResponseWriter, r *http.Request) {
+			if r.Method != http.MethodPost {
+				http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+				return
+			}
+			if deps.Groups == nil || deps.Enrollment == nil {
+				http.Error(w, `{"error":"unauthorized"}`, http.StatusUnauthorized)
+				return
+			}
+			apiKey := r.Header.Get("Authorization")
+			if apiKey == "" {
+				http.Error(w, `{"error":"unauthorized"}`, http.StatusUnauthorized)
+				return
+			}
+			_, keyID, ok := deps.Groups.ResolveKeyWithID(apiKey)
+			if !ok {
+				http.Error(w, `{"error":"unauthorized"}`, http.StatusUnauthorized)
+				return
+			}
+
+			var req struct {
+				Status   string                `json:"status"`
+				Findings []EcosystemFinding    `json:"findings"`
+				Summary  *EcosystemScanSummary `json:"summary"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+				http.Error(w, "invalid JSON", http.StatusBadRequest)
+				return
+			}
+
+			switch req.Status {
+			case "started":
+				if err := enrollment.RecordScanStarted(keyID); err != nil {
+					http.Error(w, "internal error", http.StatusInternalServerError)
+					return
+				}
+			case "completed":
+				summary := EcosystemScanSummary{}
+				if req.Summary != nil {
+					summary = *req.Summary
+				}
+				if err := enrollment.RecordScanCompleted(keyID, req.Findings, summary); err != nil {
+					http.Error(w, "internal error", http.StatusInternalServerError)
+					return
+				}
+				if deps.Audit != nil {
+					deps.Audit.Log("agent_scan_completed", keyID, fmt.Sprintf("flagged=%d", summary.FlaggedCount))
+				}
+			default:
+				http.Error(w, "invalid status", http.StatusBadRequest)
+				return
+			}
+
+			writeJSON(w, map[string]bool{"ok": true})
 		})
 
 		// GET /api/agents — admin and editor only
@@ -1700,11 +1762,37 @@ func Handler(dataDir string, deps HandlerDeps) http.Handler {
 				http.Error(w, `{"error":"forbidden"}`, http.StatusForbidden)
 				return
 			}
-			agentID := strings.TrimPrefix(r.URL.Path, "/api/agents/")
-			if agentID == "" {
+			rest := strings.TrimPrefix(r.URL.Path, "/api/agents/")
+			if rest == "" {
 				http.NotFound(w, r)
 				return
 			}
+
+			if scanAgentID, isScan := strings.CutSuffix(rest, "/scan"); isScan {
+				if r.Method != http.MethodPost {
+					http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+					return
+				}
+				if s.Role != RoleAdmin {
+					http.Error(w, `{"error":"only admins can trigger a scan"}`, http.StatusForbidden)
+					return
+				}
+				if _, exists := enrollment.GetAgentByID(scanAgentID); !exists {
+					http.NotFound(w, r)
+					return
+				}
+				if err := enrollment.RequestScan(scanAgentID); err != nil {
+					http.Error(w, err.Error(), http.StatusInternalServerError)
+					return
+				}
+				if deps.Audit != nil {
+					deps.Audit.Log("agent_scan_requested", scanAgentID, "")
+				}
+				writeJSON(w, map[string]bool{"ok": true})
+				return
+			}
+
+			agentID := rest
 			switch r.Method {
 			case http.MethodPut:
 				var body struct {
@@ -1793,6 +1881,42 @@ func Handler(dataDir string, deps HandlerDeps) http.Handler {
 			default:
 				http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			}
+		})
+
+		// GET /api/ecosystem/findings — admin only; fleet-wide malware findings from ecosystem scans
+		mux.HandleFunc("/api/ecosystem/findings", func(w http.ResponseWriter, r *http.Request) {
+			s, ok := sessionFromContext(r)
+			if !ok {
+				http.Error(w, `{"error":"unauthorized"}`, http.StatusUnauthorized)
+				return
+			}
+			if s.Role != RoleAdmin {
+				http.Error(w, `{"error":"forbidden"}`, http.StatusForbidden)
+				return
+			}
+			if r.Method != http.MethodGet {
+				http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+				return
+			}
+			writeJSON(w, enrollment.ListEcosystemFindings())
+		})
+
+		// GET /api/ecosystem/summary — admin only; fleet-wide scan summary counts
+		mux.HandleFunc("/api/ecosystem/summary", func(w http.ResponseWriter, r *http.Request) {
+			s, ok := sessionFromContext(r)
+			if !ok {
+				http.Error(w, `{"error":"unauthorized"}`, http.StatusUnauthorized)
+				return
+			}
+			if s.Role != RoleAdmin {
+				http.Error(w, `{"error":"forbidden"}`, http.StatusForbidden)
+				return
+			}
+			if r.Method != http.MethodGet {
+				http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+				return
+			}
+			writeJSON(w, enrollment.EcosystemFleetSummaryStats())
 		})
 
 		// GET /api/enrollment-tokens — admin only
@@ -2107,10 +2231,11 @@ func Handler(dataDir string, deps HandlerDeps) http.Handler {
 func sessionMiddleware(h http.Handler, sessions *SessionStore) http.Handler {
 	// unauthenticated API routes — session is attached if present but never required
 	unauthAPI := map[string]bool{
-		"/api/me":        true,
-		"/api/enroll":    true,
-		"/api/heartbeat": true, // agent API key auth, not session
-		"/api/sync":      true, // agent sync, not session
+		"/api/me":          true,
+		"/api/enroll":      true,
+		"/api/heartbeat":   true, // agent API key auth, not session
+		"/api/sync":        true, // agent sync, not session
+		"/api/scan-report": true, // agent API key auth, not session
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Always pass: static files, auth endpoints, healthz, install.sh
