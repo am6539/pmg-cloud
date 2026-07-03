@@ -1425,11 +1425,13 @@ async function triggerScan(id,hostname){
   }catch(e){showToast('Error: '+e.message,'error');}
 }
 
+var ecoFindings=[];
 async function renderEcosystemScan(){
   var summary={},findings=[];
   try{summary=await api('/api/ecosystem/summary');}catch(e){}
   try{findings=await api('/api/ecosystem/findings');}catch(e){}
   findings=findings||[];
+  ecoFindings=findings;
   document.getElementById('content').innerHTML=
   '<div class="sec-title">Ecosystem Scan <small>malware found in already-installed packages</small></div>'+
   '<div class="kpi-grid" style="margin-bottom:16px">'+
@@ -1438,7 +1440,7 @@ async function renderEcosystemScan(){
   '<div class="kpi"><div class="kpi-lbl">Last Scan</div><div class="kpi-val" style="font-size:16px">'+(summary.last_scan_at?fmtDate(summary.last_scan_at):'—')+'</div></div>'+
   '</div>'+
   '<div class="tbl-wrap"><table><thead><tr><th>Agent</th><th>OS</th><th>Ecosystem</th><th>Package</th><th>Version</th><th>Verdict</th><th>Paths</th><th>Detected</th><th>Remove</th></tr></thead><tbody>'+
-  (findings.length?findings.map(function(f){
+  (findings.length?findings.map(function(f,i){
     var paths=f.paths||[];
     return'<tr>'+
     '<td><strong>'+h(f.hostname)+'</strong></td>'+
@@ -1448,13 +1450,23 @@ async function renderEcosystemScan(){
     '<td class="mono">'+h(f.version)+'</td>'+
     '<td style="font-size:12px">'+h(f.verdict||'')+(f.reference_url?' <a href="'+h(f.reference_url)+'" target="_blank" rel="noopener">(ref)</a>':'')+'</td>'+
     '<td style="font-size:11px;color:var(--tx4)">'+paths.length+' path'+(paths.length===1?'':'s')+
-      (paths.length?' <button class="btn btn-sm btn-ghost" onclick="alert('+JSON.stringify(paths.join('\n'))+')">view</button>':'')+'</td>'+
+      (paths.length?' <button class="btn btn-sm btn-ghost" onclick="viewFindingPaths('+i+')">view</button>':'')+'</td>'+
     '<td style="font-size:12px;color:var(--tx3)">'+fmtDate(f.detected_at)+'</td>'+
     '<td class="mono" style="font-size:11px">'+h(f.remove_hint||'')+
-      (f.remove_hint?' <button class="btn btn-sm btn-ghost" onclick="navigator.clipboard.writeText('+JSON.stringify(f.remove_hint)+')">copy</button>':'')+'</td>'+
+      (f.remove_hint?' <button class="btn btn-sm btn-ghost" onclick="copyRemoveHint('+i+')">copy</button>':'')+'</td>'+
     '</tr>';
   }).join(''):'<tr><td colspan="9" class="empty">No malware findings yet. Trigger a scan from the Agents tab.</td></tr>')+
   '</tbody></table></div>';
+}
+function viewFindingPaths(i){
+  var f=ecoFindings[i];
+  if(!f)return;
+  alert((f.paths||[]).join('\n'));
+}
+function copyRemoveHint(i){
+  var f=ecoFindings[i];
+  if(!f||!f.remove_hint)return;
+  navigator.clipboard.writeText(f.remove_hint);
 }
 
 /* ---- GROUPS ---- */
