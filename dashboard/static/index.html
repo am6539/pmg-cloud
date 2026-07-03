@@ -643,11 +643,11 @@ async function renderEvents(){
 '<thead><tr><th>Time</th><th>Type</th><th>Ecosystem</th><th>Package</th><th>Version</th><th>Action</th><th>Endpoint</th></tr></thead>'+
 '<tbody>'+(events.length?events.map(function(ev){
   var isSummary=ev.event_type==='SESSION_SUMMARY';
-  var ecoCell=isSummary?'<td><span style="font-size:11px;color:var(--tx3)">'+h(ev.package_manager||'&mdash;')+'</span></td>':('<td>'+ecoBdg(ev.ecosystem)+'</td>');
-  var pkgCell=isSummary?'<td colspan="2" style="font-size:11px;color:var(--tx2)">analyzed: '+h(String(ev.total_analyzed||0))+' &nbsp;allowed: <span style="color:#4caf50">'+h(String(ev.allowed_count||0))+'</span> &nbsp;blocked: <span style="color:#f44336">'+h(String(ev.blocked_count||0))+'</span></td>':('<td class="trunc" title="'+h(ev.package_name)+'">'+h(ev.package_name||'&mdash;')+'</td><td style="font-size:12px;color:var(--tx3)">'+h(ev.package_version||'&mdash;')+'</td>');
-  var actionCell=isSummary?'<td><span style="font-size:11px;color:var(--tx3)">'+h(ev.outcome||'&mdash;')+'</span></td>':('<td>'+actionBdg(ev.action)+'</td>');
+  var ecoCell=isSummary?'<td><span style="font-size:11px;color:var(--tx3)">'+h(ev.package_manager||'—')+'</span></td>':('<td>'+ecoBdg(ev.ecosystem)+'</td>');
+  var pkgCell=isSummary?'<td colspan="2" style="font-size:11px;color:var(--tx2)">analyzed: '+h(String(ev.total_analyzed||0))+' &nbsp;allowed: <span style="color:#4caf50">'+h(String(ev.allowed_count||0))+'</span> &nbsp;blocked: <span style="color:#f44336">'+h(String(ev.blocked_count||0))+'</span></td>':('<td class="trunc" title="'+h(ev.package_name)+'">'+h(ev.package_name||'—')+'</td><td style="font-size:12px;color:var(--tx3)">'+h(ev.package_version||'—')+'</td>');
+  var actionCell=isSummary?'<td><span style="font-size:11px;color:var(--tx3)">'+h(ev.outcome||'—')+'</span></td>':('<td>'+actionBdg(ev.action)+'</td>');
   return'<tr><td style="white-space:nowrap;font-size:12px">'+fmtDate(ev.received_at)+'</td>'+
-  '<td>'+bdg(ev.event_type||'&mdash;','gray')+'</td>'+
+  '<td>'+bdg(ev.event_type||'—','gray')+'</td>'+
   ecoCell+pkgCell+actionCell+
   '<td class="trunc" style="font-size:11px;color:var(--tx4)">'+trunc(ev.endpoint_id,18)+'</td></tr>';
 }).join(''):'<tr><td colspan="7" class="empty">No events</td></tr>')+
@@ -1523,7 +1523,7 @@ async function loadGroupKeys(i){
     if(!keys.length){el.innerHTML='<div class="empty" style="padding:10px">No keys</div>';return;}
     el.innerHTML='<div class="tbl-wrap"><table><thead><tr><th>Name</th><th>Prefix</th><th>Created</th><th></th></tr></thead><tbody>'+
     keys.map(function(k){
-      return'<tr><td>'+h(k.name||'&mdash;')+'</td>'+
+      return'<tr><td>'+h(k.name||'—')+'</td>'+
       '<td class="mono" style="font-size:11px">'+h(k.key_prefix||'')+'&hellip;</td>'+
       '<td style="font-size:12px;color:var(--tx3)">'+fmtDate(k.created_at)+'</td>'+
       '<td><button class="btn btn-sm btn-danger" onclick="revokeKey(\''+h(g.id)+'\',\''+h(k.id)+'\','+i+')">Revoke</button></td></tr>';
@@ -1609,8 +1609,8 @@ async function renderAudit(){
 (entries.length?entries.map(function(e){
   return'<tr>'+
   '<td style="font-size:12px;white-space:nowrap">'+fmtDate(e.timestamp)+'</td>'+
-  '<td>'+bdg(e.action||'&mdash;','gray')+'</td>'+
-  '<td class="trunc mono" style="font-size:11px">'+h(e.subject||'&mdash;')+'</td>'+
+  '<td>'+bdg(e.action||'—','gray')+'</td>'+
+  '<td class="trunc mono" style="font-size:11px">'+h(e.subject||'—')+'</td>'+
   '<td class="trunc" style="color:var(--tx3)">'+h(e.detail||'')+'</td></tr>';
 }).join(''):'<tr><td colspan="4" class="empty">No audit entries</td></tr>')+
 '</tbody></table></div>';
@@ -1659,8 +1659,8 @@ async function renderSettings(){
 '<div class="tbl-wrap"><table><thead><tr><th>Name</th><th>URL</th><th>Triggers</th><th>Status</th><th></th></tr></thead><tbody>'+
 (wh.length?wh.map(function(w){
   return'<tr>'+
-  '<td>'+h(w.name||'&mdash;')+'</td>'+
-  '<td class="trunc mono" style="font-size:11px">'+h(w.url||'&mdash;')+'</td>'+
+  '<td>'+h(w.name||'—')+'</td>'+
+  '<td class="trunc mono" style="font-size:11px">'+h(w.url||'—')+'</td>'+
   '<td>'+(w.on_malware?bdg('malware','red'):'')+' '+(w.on_blocked?bdg('blocked','yellow'):'')+'</td>'+
   '<td>'+(w.enabled!==false?bdg('Enabled','green'):bdg('Disabled','gray'))+'</td>'+
   '<td class="flex" style="gap:4px">'+
