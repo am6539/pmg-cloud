@@ -2,6 +2,7 @@ package dashboard
 
 import (
 	"fmt"
+	"log/slog"
 	"time"
 )
 
@@ -81,7 +82,9 @@ func (es *EnrollmentStore) ConsumeScanRequest(keyID string) bool {
 			es.data.Agents[i].ScanState = "dispatched"
 			now := time.Now().UTC()
 			es.data.Agents[i].ScanDispatchedAt = &now
-			_ = es.save()
+			if err := es.save(); err != nil {
+				slog.Warn("failed to persist scan dispatch state", "api_key_id", keyID, "err", err)
+			}
 			return true
 		}
 	}
