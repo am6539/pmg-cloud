@@ -1448,7 +1448,7 @@ async function renderEcosystemScan(){
     '<td>'+ecoBdg(f.ecosystem)+'</td>'+
     '<td class="mono">'+h(f.name)+'</td>'+
     '<td class="mono">'+h(f.version)+'</td>'+
-    '<td style="font-size:12px">'+h(f.verdict||'')+(f.reference_url?' <a href="'+h(f.reference_url)+'" target="_blank" rel="noopener">(ref)</a>':'')+'</td>'+
+    '<td style="font-size:12px">'+h(f.verdict||'')+(/^https?:\/\//i.test(f.reference_url||'')?' <a href="'+h(f.reference_url)+'" target="_blank" rel="noopener">(ref)</a>':'')+'</td>'+
     '<td style="font-size:11px;color:var(--tx4)">'+paths.length+' path'+(paths.length===1?'':'s')+
       (paths.length?' <button class="btn btn-sm btn-ghost" onclick="viewFindingPaths('+i+')">view</button>':'')+'</td>'+
     '<td style="font-size:12px;color:var(--tx3)">'+fmtDate(f.detected_at)+'</td>'+
