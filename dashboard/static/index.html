@@ -1176,7 +1176,10 @@ missingBanner+
 (S.me&&S.me.role==='admin'?
 '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">'+
 '<div class="sec-title" style="margin:0">Enrolled Agents <small>'+agents.length+' total</small></div>'+
-'<button class="btn btn-primary" onclick="openDeployWizard()">&#43; Deploy New Agent</button></div>':
+'<div class="flex" style="gap:8px">'+
+'<button class="btn btn-ghost" onclick="triggerScanAll()">Scan All ('+agents.length+')</button>'+
+'<button class="btn btn-primary" onclick="openDeployWizard()">&#43; Deploy New Agent</button>'+
+'</div></div>':
 '<div class="sec-title">Enrolled Agents <small>'+agents.length+' total</small></div>')+
 '<div class="tbl-wrap"><table><thead><tr><th>Status</th><th>Device</th><th>OS / Arch</th><th>IP Address</th><th>Group</th><th>Enrolled</th><th>Last Seen</th><th>Scan</th><th></th></tr></thead><tbody>'+
 (agents.length?agents.map(function(a){
@@ -1423,6 +1426,23 @@ async function triggerScan(id,hostname){
     showToast('Scan requested','success');
     await renderAgents();
   }catch(e){showToast('Error: '+e.message,'error');}
+}
+
+async function triggerScanAll(){
+  var agents=[];
+  try{agents=(await api('/api/agents')).filter(function(a){return a&&!a.removed;});}
+  catch(e){showToast('Error: '+e.message,'error');return;}
+
+  if(!agents.length){showToast('No agents to scan','error');return;}
+  if(!confirm('Scan all '+agents.length+' agent'+(agents.length>1?'s':'')+' for malware? Each runs on its next check-in (within ~15 min).'))return;
+
+  var results=await Promise.allSettled(agents.map(function(a){
+    return fetch('/api/agents/'+a.id+'/scan',{method:'POST'});
+  }));
+  var ok=results.filter(function(r){return r.status==='fulfilled'&&r.value.ok;}).length;
+  var fail=results.length-ok;
+  showToast('Requested scan for '+ok+'/'+results.length+' agent'+(results.length>1?'s':'')+(fail?' ('+fail+' failed)':''), fail?'error':'success');
+  await renderAgents();
 }
 
 var ecoFindings=[];
