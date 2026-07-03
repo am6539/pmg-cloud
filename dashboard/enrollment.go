@@ -50,6 +50,16 @@ type Agent struct {
 	EnrolledAt time.Time  `json:"enrolled_at"`
 	LastSeen   *time.Time `json:"last_seen,omitempty"`
 	Removed    bool       `json:"removed,omitempty"` // true = agent removed but events kept for audit
+
+	// Ecosystem scan state: set by an admin's POST /api/agents/{id}/scan,
+	// consumed (fire-once) by the agent's next heartbeat poll, and updated as
+	// the agent reports progress via POST /api/scan-report.
+	ScanRequested    bool                  `json:"scan_requested,omitempty"`
+	ScanState        string                `json:"scan_state,omitempty"` // idle|pending|dispatched|running|completed
+	ScanDispatchedAt *time.Time            `json:"scan_dispatched_at,omitempty"`
+	LastScanAt       *time.Time            `json:"last_scan_at,omitempty"`
+	LastScanSummary  *EcosystemScanSummary `json:"last_scan_summary,omitempty"`
+	Findings         []EcosystemFinding    `json:"findings,omitempty"`
 }
 
 type enrollmentFile struct {
