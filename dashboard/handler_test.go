@@ -356,3 +356,41 @@ func TestHandler_EcosystemSummary_ReturnsAggregateCounts(t *testing.T) {
 	assert.Equal(t, 1, summary.AgentsScanned)
 	assert.Equal(t, 1, summary.TotalFindings)
 }
+
+func newGroupsHandlerWithEditor(t *testing.T) (http.Handler, *GroupStore, string) {
+	t.Helper()
+	dataDir := t.TempDir()
+	groups, err := NewGroupStore(dataDir)
+	require.NoError(t, err)
+	users, err := NewUserStore(dataDir, "seed-admin", "seed-password-123")
+	require.NoError(t, err)
+	sessions := NewSessionStore()
+	sid, err := sessions.Create(DashUser{ID: "u2", Username: "editor", Role: RoleEditor})
+	require.NoError(t, err)
+	h := Handler(dataDir, HandlerDeps{Groups: groups, Users: users, Sessions: sessions})
+	return h, groups, sid
+}
+
+func TestHandler_Groups_EditorCanListGroups(t *testing.T) {
+	h, groups, sid := newGroupsHandlerWithEditor(t)
+	group, err := groups.CreateGroup("vega")
+	require.NoError(t, err)
+
+	rec := doWithSession(t, h, http.MethodGet, "/api/groups", sid, "")
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+
+	var rows []struct {
+		Group
+		KeyCount int `json:"key_count"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &rows))
+	require.Len(t, rows, 1)
+	assert.Equal(t, group.ID, rows[0].ID)
+}
+
+func TestHandler_Groups_EditorCannotCreateGroup(t *testing.T) {
+	h, _, sid := newGroupsHandlerWithEditor(t)
+
+	rec := doWithSession(t, h, http.MethodPost, "/api/groups", sid, `{"name":"nova"}`)
+	assert.Equal(t, http.StatusForbidden, rec.Code)
+}

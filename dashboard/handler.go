@@ -918,16 +918,16 @@ func Handler(dataDir string, deps HandlerDeps) http.Handler {
 	if deps.Groups != nil {
 		groups := deps.Groups
 
-		// GET  /api/groups        — list all groups with key counts
-		// POST /api/groups        — create group {name}
+		// GET  /api/groups        — list all groups with key counts (admin and editor)
+		// POST /api/groups        — create group {name} (admin only)
 		mux.HandleFunc("/api/groups", func(w http.ResponseWriter, r *http.Request) {
 			s, ok := sessionFromContext(r)
-			if ok && s.Role != RoleAdmin {
-				http.Error(w, `{"error":"forbidden"}`, http.StatusForbidden)
-				return
-			}
 			switch r.Method {
 			case http.MethodGet:
+				if ok && s.Role != RoleAdmin && s.Role != RoleEditor {
+					http.Error(w, `{"error":"forbidden"}`, http.StatusForbidden)
+					return
+				}
 				list := groups.ListGroups()
 				counts := groups.KeyCount()
 				type groupRow struct {
@@ -941,6 +941,10 @@ func Handler(dataDir string, deps HandlerDeps) http.Handler {
 				writeJSON(w, rows)
 
 			case http.MethodPost:
+				if ok && s.Role != RoleAdmin {
+					http.Error(w, `{"error":"forbidden"}`, http.StatusForbidden)
+					return
+				}
 				var body struct {
 					Name string `json:"name"`
 				}
