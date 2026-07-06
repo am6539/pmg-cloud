@@ -322,7 +322,7 @@ func TestHandler_EcosystemFindings_AdminOnly(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, enrollment.ReenrollAgent("agent-1", "windows", "amd64", "0.18.10", "", "", group.ID, key.ID))
 	require.NoError(t, enrollment.RecordScanCompleted(key.ID,
-		[]EcosystemFinding{{Ecosystem: "npm", Name: "evil-pkg", Version: "6.6.6"}}, EcosystemScanSummary{}))
+		[]EcosystemFinding{{Ecosystem: "npm", Name: "evil-pkg", Version: "6.6.6"}}, nil, EcosystemScanSummary{}))
 
 	rec := doWithSession(t, h, http.MethodGet, "/api/ecosystem/findings", sid, "")
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
@@ -346,7 +346,7 @@ func TestHandler_EcosystemSummary_ReturnsAggregateCounts(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, enrollment.ReenrollAgent("agent-1", "windows", "amd64", "0.18.10", "", "", group.ID, key.ID))
 	require.NoError(t, enrollment.RecordScanCompleted(key.ID,
-		[]EcosystemFinding{{Name: "evil-pkg"}}, EcosystemScanSummary{}))
+		[]EcosystemFinding{{Name: "evil-pkg"}}, nil, EcosystemScanSummary{}))
 
 	rec := doWithSession(t, h, http.MethodGet, "/api/ecosystem/summary", sid, "")
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())

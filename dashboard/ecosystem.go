@@ -18,6 +18,15 @@ type EcosystemFinding struct {
 	RemoveHint   string   `json:"remove_hint,omitempty"`
 }
 
+// EcosystemPackage is a clean (non-malicious) package found on an agent's disk
+// during a machine-wide ecosystem scan, as reported by POST /api/scan-report.
+type EcosystemPackage struct {
+	Ecosystem string   `json:"ecosystem"`
+	Name      string   `json:"name"`
+	Version   string   `json:"version"`
+	Paths     []string `json:"paths,omitempty"`
+}
+
 // EcosystemScanSummary carries aggregate counters for one completed ecosystem scan.
 type EcosystemScanSummary struct {
 	TotalPathsScanned  int     `json:"total_paths_scanned"`
@@ -46,9 +55,10 @@ type EcosystemFindingView struct {
 
 // EcosystemFleetSummary is the aggregate counts shown as dashboard summary cards.
 type EcosystemFleetSummary struct {
-	AgentsScanned int        `json:"agents_scanned"`
-	TotalFindings int        `json:"total_findings"`
-	LastScanAt    *time.Time `json:"last_scan_at,omitempty"`
+	AgentsScanned  int        `json:"agents_scanned"`
+	TotalFindings  int        `json:"total_findings"`
+	TotalPackages  int        `json:"total_packages"`
+	LastScanAt     *time.Time `json:"last_scan_at,omitempty"`
 }
 
 // RequestScan flags the agent identified by agentID for a scan on its next
@@ -108,9 +118,9 @@ func (es *EnrollmentStore) RecordScanStarted(keyID string) error {
 	return nil
 }
 
-// RecordScanCompleted stores findings and the scan summary for the agent
+// RecordScanCompleted stores findings, clean packages, and the scan summary for the agent
 // identified by keyID, replacing any findings from a previous scan.
-func (es *EnrollmentStore) RecordScanCompleted(keyID string, findings []EcosystemFinding, summary EcosystemScanSummary) error {
+func (es *EnrollmentStore) RecordScanCompleted(keyID string, findings []EcosystemFinding, cleanPackages []EcosystemPackage, summary EcosystemScanSummary) error {
 	if keyID == "" {
 		return nil
 	}
@@ -123,14 +133,16 @@ func (es *EnrollmentStore) RecordScanCompleted(keyID string, findings []Ecosyste
 			es.data.Agents[i].LastScanAt = &now
 			es.data.Agents[i].LastScanSummary = &summary
 			es.data.Agents[i].Findings = findings
+			es.data.Agents[i].CleanPackages = cleanPackages
 			return es.save()
 		}
 	}
 	return nil
 }
 
-// ListEcosystemFindings returns every finding across all non-removed agents,
-// enriched with agent identity, for the dashboard's fleet-wide findings table.
+// ListEcosystemFindings returns every finding and clean package across all
+// non-removed agents, enriched with agent identity, for the dashboard's
+// fleet-wide findings table. Clean packages have Verdict set to "clean".
 func (es *EnrollmentStore) ListEcosystemFindings() []EcosystemFindingView {
 	es.mu.RLock()
 	defer es.mu.RUnlock()
@@ -154,6 +166,19 @@ func (es *EnrollmentStore) ListEcosystemFindings() []EcosystemFindingView {
 				DetectedAt:   a.LastScanAt,
 			})
 		}
+		for _, p := range a.CleanPackages {
+			out = append(out, EcosystemFindingView{
+				AgentID:    a.ID,
+				Hostname:   a.Hostname,
+				OS:         a.OS,
+				Ecosystem:  p.Ecosystem,
+				Name:       p.Name,
+				Version:    p.Version,
+				Verdict:    "clean",
+				Paths:      p.Paths,
+				DetectedAt: a.LastScanAt,
+			})
+		}
 	}
 	return out
 }
@@ -175,6 +200,7 @@ func (es *EnrollmentStore) EcosystemFleetSummaryStats() EcosystemFleetSummary {
 			}
 		}
 		summary.TotalFindings += len(a.Findings)
+		summary.TotalPackages += len(a.Findings) + len(a.CleanPackages)
 	}
 	return summary
 }

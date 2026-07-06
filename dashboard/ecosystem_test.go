@@ -76,7 +76,7 @@ func TestRecordScanCompleted_StoresFindingsAndSummary(t *testing.T) {
 	}}
 	summary := EcosystemScanSummary{TotalPathsScanned: 10, UniquePackages: 5, FlaggedCount: 1}
 
-	require.NoError(t, es.RecordScanCompleted("key-1", findings, summary))
+	require.NoError(t, es.RecordScanCompleted("key-1", findings, nil, summary))
 
 	agent, _ := es.GetAgentByID("agent-1")
 	assert.Equal(t, "completed", agent.ScanState)
@@ -92,9 +92,9 @@ func TestRecordScanCompleted_ReplacesPreviousFindings(t *testing.T) {
 	require.NoError(t, es.RegisterAgent(Agent{ID: "agent-1", APIKeyID: "key-1"}))
 
 	require.NoError(t, es.RecordScanCompleted("key-1",
-		[]EcosystemFinding{{Name: "old-finding"}}, EcosystemScanSummary{}))
+		[]EcosystemFinding{{Name: "old-finding"}}, nil, EcosystemScanSummary{}))
 	require.NoError(t, es.RecordScanCompleted("key-1",
-		[]EcosystemFinding{{Name: "new-finding"}}, EcosystemScanSummary{}))
+		[]EcosystemFinding{{Name: "new-finding"}}, nil, EcosystemScanSummary{}))
 
 	agent, _ := es.GetAgentByID("agent-1")
 	require.Len(t, agent.Findings, 1)
@@ -108,10 +108,10 @@ func TestListEcosystemFindings_EnrichesWithAgentIdentityAndSkipsRemoved(t *testi
 
 	require.NoError(t, es.RecordScanCompleted("key-1",
 		[]EcosystemFinding{{Ecosystem: "npm", Name: "evil-pkg", Version: "6.6.6"}},
-		EcosystemScanSummary{}))
+		nil, EcosystemScanSummary{}))
 	require.NoError(t, es.RecordScanCompleted("key-2",
 		[]EcosystemFinding{{Ecosystem: "npm", Name: "should-not-appear", Version: "1.0.0"}},
-		EcosystemScanSummary{}))
+		nil, EcosystemScanSummary{}))
 
 	views := es.ListEcosystemFindings()
 	require.Len(t, views, 1)
@@ -126,9 +126,9 @@ func TestEcosystemFleetSummaryStats_AggregatesAcrossAgents(t *testing.T) {
 	require.NoError(t, es.RegisterAgent(Agent{ID: "agent-2", APIKeyID: "key-2"}))
 
 	require.NoError(t, es.RecordScanCompleted("key-1",
-		[]EcosystemFinding{{Name: "a"}, {Name: "b"}}, EcosystemScanSummary{}))
+		[]EcosystemFinding{{Name: "a"}, {Name: "b"}}, nil, EcosystemScanSummary{}))
 	require.NoError(t, es.RecordScanCompleted("key-2",
-		[]EcosystemFinding{{Name: "c"}}, EcosystemScanSummary{}))
+		[]EcosystemFinding{{Name: "c"}}, nil, EcosystemScanSummary{}))
 
 	summary := es.EcosystemFleetSummaryStats()
 	assert.Equal(t, 2, summary.AgentsScanned)

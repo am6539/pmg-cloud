@@ -60,6 +60,7 @@ type Agent struct {
 	LastScanAt       *time.Time            `json:"last_scan_at,omitempty"`
 	LastScanSummary  *EcosystemScanSummary `json:"last_scan_summary,omitempty"`
 	Findings         []EcosystemFinding    `json:"findings,omitempty"`
+	CleanPackages    []EcosystemPackage    `json:"clean_packages,omitempty"`
 }
 
 type enrollmentFile struct {

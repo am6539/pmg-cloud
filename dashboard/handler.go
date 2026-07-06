@@ -1703,6 +1703,7 @@ func Handler(dataDir string, deps HandlerDeps) http.Handler {
 			var req struct {
 				Status   string                `json:"status"`
 				Findings []EcosystemFinding    `json:"findings"`
+				Packages []EcosystemPackage    `json:"packages"`
 				Summary  *EcosystemScanSummary `json:"summary"`
 			}
 			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -1721,7 +1722,7 @@ func Handler(dataDir string, deps HandlerDeps) http.Handler {
 				if req.Summary != nil {
 					summary = *req.Summary
 				}
-				if err := enrollment.RecordScanCompleted(keyID, req.Findings, summary); err != nil {
+				if err := enrollment.RecordScanCompleted(keyID, req.Findings, req.Packages, summary); err != nil {
 					http.Error(w, "internal error", http.StatusInternalServerError)
 					return
 				}

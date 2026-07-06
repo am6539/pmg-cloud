@@ -1446,37 +1446,60 @@ async function triggerScanAll(){
 }
 
 var ecoFindings=[];
+var ecoVerdictFilter='malware';
 async function renderEcosystemScan(){
   var summary={},findings=[];
   try{summary=await api('/api/ecosystem/summary');}catch(e){}
   try{findings=await api('/api/ecosystem/findings');}catch(e){}
   findings=findings||[];
   ecoFindings=findings;
+  renderEcosystemTable(summary,findings);
+}
+function renderEcosystemTable(summary,findings){
+  var filtered=findings.filter(function(f){
+    if(ecoVerdictFilter==='malware')return (f.verdict||'clean')!=='clean';
+    if(ecoVerdictFilter==='clean')return (f.verdict||'clean')==='clean';
+    return true;
+  });
+  var malwareCount=findings.filter(function(f){return(f.verdict||'clean')!=='clean';}).length;
   document.getElementById('content').innerHTML=
-  '<div class="sec-title">Ecosystem Scan <small>malware found in already-installed packages</small></div>'+
+  '<div class="sec-title">Ecosystem Scan <small>scanned packages on enrolled machines</small></div>'+
   '<div class="kpi-grid" style="margin-bottom:16px">'+
   '<div class="kpi"><div class="kpi-lbl">Agents Scanned</div><div class="kpi-val">'+fmt(summary.agents_scanned||0)+'</div></div>'+
-  '<div class="kpi'+((summary.total_findings||0)>0?' danger':'')+'"><div class="kpi-lbl">Total Findings</div><div class="kpi-val">'+fmt(summary.total_findings||0)+'</div></div>'+
+  '<div class="kpi'+((malwareCount)>0?' danger':'')+'"><div class="kpi-lbl">Malware Findings</div><div class="kpi-val">'+fmt(malwareCount)+'</div></div>'+
+  '<div class="kpi"><div class="kpi-lbl">Total Packages</div><div class="kpi-val">'+fmt(summary.total_packages||findings.length)+'</div></div>'+
   '<div class="kpi"><div class="kpi-lbl">Last Scan</div><div class="kpi-val" style="font-size:16px">'+(summary.last_scan_at?fmtDate(summary.last_scan_at):'—')+'</div></div>'+
   '</div>'+
-  '<div class="tbl-wrap"><table><thead><tr><th>Agent</th><th>OS</th><th>Ecosystem</th><th>Package</th><th>Version</th><th>Verdict</th><th>Paths</th><th>Detected</th><th>Remove</th></tr></thead><tbody>'+
-  (findings.length?findings.map(function(f,i){
+  '<div class="flex" style="gap:6px;margin-bottom:10px">'+
+  '<button class="btn btn-sm'+(ecoVerdictFilter==='malware'?' btn-primary':' btn-ghost')+'" onclick="setEcoFilter(\'malware\')">Malware ('+malwareCount+')</button>'+
+  '<button class="btn btn-sm'+(ecoVerdictFilter==='clean'?' btn-primary':' btn-ghost')+'" onclick="setEcoFilter(\'clean\')">Clean ('+(findings.length-malwareCount)+')</button>'+
+  '<button class="btn btn-sm'+(ecoVerdictFilter==='all'?' btn-primary':' btn-ghost')+'" onclick="setEcoFilter(\'all\')">All ('+findings.length+')</button>'+
+  '</div>'+
+  '<div class="tbl-wrap"><table><thead><tr><th>Agent</th><th>OS</th><th>Ecosystem</th><th>Package</th><th>Version</th><th>Verdict</th><th>Paths</th><th>Detected</th>'+(ecoVerdictFilter!=='clean'?'<th>Remove</th>':'')+'</tr></thead><tbody>'+
+  (filtered.length?filtered.map(function(f,i){
+    var idx=ecoFindings.indexOf(f);
     var paths=f.paths||[];
+    var isClean=(f.verdict||'clean')==='clean';
     return'<tr>'+
     '<td><strong>'+h(f.hostname)+'</strong></td>'+
     '<td style="font-size:12px;color:var(--tx3)">'+h(f.os||'')+'</td>'+
     '<td>'+ecoBdg(f.ecosystem)+'</td>'+
     '<td class="mono">'+h(f.name)+'</td>'+
     '<td class="mono">'+h(f.version)+'</td>'+
-    '<td style="font-size:12px">'+h(f.verdict||'')+(/^https?:\/\//i.test(f.reference_url||'')?' <a href="'+h(f.reference_url)+'" target="_blank" rel="noopener">(ref)</a>':'')+'</td>'+
+    '<td style="font-size:12px">'+(isClean?'<span style="color:var(--ok,#22c55e)">clean</span>':h(f.verdict||'')+(/^https?:\/\//i.test(f.reference_url||'')?' <a href="'+h(f.reference_url)+'" target="_blank" rel="noopener">(ref)</a>':''))+'</td>'+
     '<td style="font-size:11px;color:var(--tx4)">'+paths.length+' path'+(paths.length===1?'':'s')+
-      (paths.length?' <button class="btn btn-sm btn-ghost" onclick="viewFindingPaths('+i+')">view</button>':'')+'</td>'+
+      (paths.length?' <button class="btn btn-sm btn-ghost" onclick="viewFindingPaths('+idx+')">view</button>':'')+'</td>'+
     '<td style="font-size:12px;color:var(--tx3)">'+fmtDate(f.detected_at)+'</td>'+
-    '<td class="mono" style="font-size:11px">'+h(f.remove_hint||'')+
-      (f.remove_hint?' <button class="btn btn-sm btn-ghost" onclick="copyRemoveHint('+i+')">copy</button>':'')+'</td>'+
+    (ecoVerdictFilter!=='clean'?'<td class="mono" style="font-size:11px">'+h(f.remove_hint||'')+
+      (f.remove_hint?' <button class="btn btn-sm btn-ghost" onclick="copyRemoveHint('+idx+')">copy</button>':'')+'</td>':'')+
     '</tr>';
-  }).join(''):'<tr><td colspan="9" class="empty">No malware findings yet. Trigger a scan from the Agents tab.</td></tr>')+
+  }).join(''):'<tr><td colspan="'+(ecoVerdictFilter!=='clean'?'9':'8')+'" class="empty">'+(ecoVerdictFilter==='malware'?'No malware findings. Trigger a scan from the Agents tab.':(ecoVerdictFilter==='clean'?'No clean packages recorded yet.':'No scan data yet. Trigger a scan from the Agents tab.'))+'</td></tr>')+
   '</tbody></table></div>';
+}
+function setEcoFilter(v){
+  ecoVerdictFilter=v;
+  renderEcosystemTable({agents_scanned:0,total_packages:0},ecoFindings);
+  renderEcosystemScan();
 }
 function viewFindingPaths(i){
   var f=ecoFindings[i];
