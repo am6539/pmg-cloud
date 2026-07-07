@@ -171,7 +171,7 @@ func (r *Reader) loadEventsRange(from, to time.Time) ([]Event, error) {
 		sc := bufio.NewScanner(f)
 		for sc.Scan() {
 			var ev Event
-			if json.Unmarshal(sc.Bytes(), &ev) == nil {
+			if json.Unmarshal(sc.Bytes(), &ev) == nil && strings.ToUpper(ev.EventType) != "HOST_OBSERVATION" {
 				events = append(events, ev)
 			}
 		}
