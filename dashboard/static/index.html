@@ -1446,7 +1446,7 @@ async function triggerScanAll(){
 }
 
 var ecoFindings=[];
-var ecoVerdictFilter='malware';
+var ecoVerdictFilter='all';
 async function renderEcosystemScan(){
   var summary={},findings=[];
   try{summary=await api('/api/ecosystem/summary');}catch(e){}
