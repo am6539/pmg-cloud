@@ -288,6 +288,7 @@ var S={page:'dashboard',group:'',days:30,from:'',to:'',useRange:false,evOffset:0
 
 document.addEventListener('DOMContentLoaded',function(){
   applyTheme();
+  _installContentHook();
   var hashPage=location.hash.replace('#','');
   if(PAGE_TITLES[hashPage]){
     S.page=hashPage;
@@ -327,7 +328,22 @@ function showDateRange(){document.querySelectorAll('.period-tab').forEach(functi
 function applyDateRange(){S.from=document.getElementById('from-date').value;S.to=document.getElementById('to-date').value;if(!S.from||!S.to)return;S.useRange=true;loadPage();}
 
 var arT,arN=30;
-function startAR(){clearInterval(arT);arN=30;arT=setInterval(function(){arN--;var el=document.getElementById('ar-cd');if(el)el.textContent=arN+'s';if(arN<=0){arN=30;loadPage();}},1000);}
+function _autoRefreshBlocked(){
+  var m=document.getElementById('modal');if(m&&m.style.display&&m.style.display!=='none')return'modal';
+  var d=document.getElementById('drawer');if(d&&d.classList.contains('open'))return'drawer';
+  if(document.hidden)return'hidden';
+  if(Date.now()-_lastInteractionTs<3000)return'active';
+  return null;
+}
+function startAR(){clearInterval(arT);arN=30;arT=setInterval(function(){
+  arN--;
+  var el=document.getElementById('ar-cd');if(el)el.textContent=arN+'s';
+  if(arN<=0){
+    var reason=_autoRefreshBlocked();
+    if(reason){arN=(reason==='active'||reason==='modal'||reason==='drawer')?3:10;return;}
+    arN=30;loadPage(false);
+  }
+},1000);}
 
 /* ---- AUTH ---- */
 async function checkAuth(){
@@ -504,10 +520,47 @@ async function checkAlerts(){
   }catch(e){}
 }
 
-async function loadPage(){
-  arN=30;
+var _lastInteractionTs=0;
+function _markInteraction(){_lastInteractionTs=Date.now();}
+['scroll','mousemove','mousedown','keydown','wheel','touchstart','touchmove'].forEach(function(ev){
+  window.addEventListener(ev,_markInteraction,{passive:true,capture:true});
+});
+var _softMode=false,_softScrollY=0,_lastHash={};
+function _fastHash(s){var h=0,i=0,l=s.length;for(;i<l;i++){h=((h<<5)-h+s.charCodeAt(i))|0;}return h+':'+l;}
+function _installContentHook(){
   var el=document.getElementById('content');
-  el.innerHTML='<div class="empty"><span class="spin">&#8635;</span> Loading&#8230;</div>';
+  if(!el||el._hooked)return;
+  var proto=Object.getOwnPropertyDescriptor(Element.prototype,'innerHTML');
+  if(!proto||!proto.set)return;
+  el._hooked=true;
+  Object.defineProperty(el,'innerHTML',{
+    configurable:true,
+    get:function(){return proto.get.call(el);},
+    set:function(v){
+      var str=String(v);
+      if(_softMode){
+        var hash=_fastHash(str);
+        if(_lastHash[S.page]===hash)return;
+        _lastHash[S.page]=hash;
+        proto.set.call(el,str);
+        window.scrollTo(0,_softScrollY);
+        return;
+      }
+      _lastHash[S.page]=_fastHash(str);
+      proto.set.call(el,str);
+    }
+  });
+}
+async function loadPage(manual){
+  if(manual===undefined)manual=true;
+  arN=30;
+  _softMode=!manual;
+  _softScrollY=window.scrollY||window.pageYOffset||0;
+  var el=document.getElementById('content');
+  if(manual){
+    _lastHash[S.page]=null;
+    el.innerHTML='<div class="empty"><span class="spin">&#8635;</span> Loading&#8230;</div>';
+  }
   try{
     if(S.page==='dashboard')await renderDashboard();
     else if(S.page==='events')await renderEvents();
@@ -520,7 +573,9 @@ async function loadPage(){
     else if(S.page==='groups')await renderGroups();
     else if(S.page==='audit')await renderAudit();
     else if(S.page==='settings')await renderSettings();
-  }catch(e){document.getElementById('content').innerHTML='<div class="empty">&#9888;&#65039; '+h(e.message)+'</div>';}
+  }catch(e){
+    if(manual)document.getElementById('content').innerHTML='<div class="empty">&#9888;&#65039; '+h(e.message)+'</div>';
+  }finally{_softMode=false;}
 }
 
 /* ---- HELPERS ---- */
