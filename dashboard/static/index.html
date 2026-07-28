@@ -582,7 +582,7 @@ async function loadPage(manual){
 function fmt(n){return(n||0).toLocaleString();}
 function fmtDate(s){if(!s)return'—';var d=new Date(s);return d.toLocaleString(undefined,{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'});}
 function bdg(t,c){c=c||'gray';return'<span class="badge b-'+c+'">'+h(t)+'</span>';}
-function actionBdg(a){var m={allow:'green',block:'red',suspicious:'yellow',allow_install:'teal',block_install:'red',allow_lockfile:'teal'};return bdg(a||'—',m[a]||'gray');}
+function actionBdg(a){var m={blocked:'red',cooldown_blocked:'red',confirmed:'green',trusted:'teal',allow:'green',block:'red',suspicious:'yellow',allow_install:'teal',block_install:'red',allow_lockfile:'teal'};return bdg(a||'—',m[(a||'').toLowerCase()]||'gray');}
 function ecoBdg(e){var m={npm:'blue',pypi:'yellow',go:'teal',cargo:'red',maven:'gray',nuget:'blue'};return bdg(e||'—',m[(e||'').toLowerCase()]||'gray');}
 function h(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
 function trunc(s,n){n=n||30;return(!s)?'—':s.length>n?h(s.slice(0,n))+'…':h(s);}
@@ -683,9 +683,10 @@ async function renderEvents(){
 '</select>'+
 '<select onchange="S.evFilter.action=this.value;S.evOffset=0;loadPage()">'+
 '<option value="">All actions</option>'+
-'<option value="allow"'+(f.action==='allow'?' selected':'')+'>allow</option>'+
-'<option value="block"'+(f.action==='block'?' selected':'')+'>block</option>'+
-'<option value="suspicious"'+(f.action==='suspicious'?' selected':'')+'>suspicious</option>'+
+'<option value="BLOCKED"'+(f.action==='BLOCKED'?' selected':'')+'>BLOCKED</option>'+
+'<option value="CONFIRMED"'+(f.action==='CONFIRMED'?' selected':'')+'>CONFIRMED</option>'+
+'<option value="TRUSTED"'+(f.action==='TRUSTED'?' selected':'')+'>TRUSTED</option>'+
+'<option value="COOLDOWN_BLOCKED"'+(f.action==='COOLDOWN_BLOCKED'?' selected':'')+'>COOLDOWN_BLOCKED</option>'+
 '</select>'+
 '<select onchange="S.evFilter.malware=this.value;S.evOffset=0;loadPage()">'+
 '<option value="">Any</option>'+

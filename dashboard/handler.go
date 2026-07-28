@@ -243,22 +243,23 @@ func Handler(dataDir string, deps HandlerDeps) http.Handler {
 		}
 
 		events = filterByGroup(events, q.Get("group_id"))
-		// optional filter by event_type
+		// optional filter by event_type (case-insensitive)
 		if et := q.Get("event_type"); et != "" {
+			et = strings.ToUpper(et)
 			filtered := make([]Event, 0, len(events))
 			for _, ev := range events {
-				if ev.EventType == et {
+				if strings.ToUpper(ev.EventType) == et {
 					filtered = append(filtered, ev)
 				}
 			}
 			events = filtered
 		}
-		// optional filter by action (comma-separated)
+		// optional filter by action (comma-separated, case-insensitive)
 		if a := q.Get("action"); a != "" {
-			actions := splitComma(a)
+			actions := splitComma(strings.ToUpper(a))
 			filtered := make([]Event, 0, len(events))
 			for _, ev := range events {
-				if actions[ev.Action] {
+				if actions[strings.ToUpper(ev.Action)] {
 					filtered = append(filtered, ev)
 				}
 			}
