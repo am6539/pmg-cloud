@@ -357,10 +357,14 @@ func Handler(dataDir string, deps HandlerDeps) http.Handler {
 			}
 			pkg := *p
 			pkg["count"] = pkg["count"].(int) + 1
-			if strings.ToUpper(ev.Action) == "BLOCKED" {
+			switch strings.ToUpper(ev.Action) {
+			case "BLOCKED":
 				pkg["blocked_count"] = pkg["blocked_count"].(int) + 1
-			} else if strings.ToUpper(ev.Action) == "ALLOWED" {
+			case "ALLOWED":
 				pkg["allowed_count"] = pkg["allowed_count"].(int) + 1
+			case "COOLDOWN_BLOCKED":
+				pkg["blocked_count"] = pkg["blocked_count"].(int) + 1
+				pkg["cooldown_blocked_count"] = pkg["cooldown_blocked_count"].(int) + 1
 			}
 			if ev.IsMalware != nil && *ev.IsMalware {
 				pkg["malware_count"] = pkg["malware_count"].(int) + 1
@@ -383,6 +387,11 @@ func Handler(dataDir string, deps HandlerDeps) http.Handler {
 				}
 			}
 			ecoMap[ev.Ecosystem]++
+		}
+		for _, ev := range events {
+			if strings.ToUpper(ev.EventType) == "SESSION_SUMMARY" && ev.PackageManager != "" {
+				ecoMap[ev.PackageManager] += int(ev.TotalAnalyzed)
+			}
 		}
 
 		// Convert to arrays
