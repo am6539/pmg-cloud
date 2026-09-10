@@ -340,14 +340,31 @@ func (s *Server) dispatchWebhook(r storedEvent) {
 		return
 	}
 	s.webhook.Send(dashboard.WebhookPayload{
-		Event:      event,
-		Timestamp:  r.ReceivedAt,
-		GroupID:    r.GroupID,
-		Package:    r.PackageName,
-		Ecosystem:  r.Ecosystem,
-		Action:     r.Action,
-		EndpointID: r.EndpointID,
+		Event:          event,
+		Timestamp:      r.ReceivedAt,
+		GroupID:        r.GroupID,
+		GroupName:      s.groupName(r.GroupID),
+		Package:        r.PackageName,
+		PackageVersion: r.PackageVersion,
+		Ecosystem:      r.Ecosystem,
+		Action:         r.Action,
+		EndpointID:     r.EndpointID,
+		Hostname:       r.Hostname,
+		IsMalware:      r.IsMalware != nil && *r.IsMalware,
 	})
+}
+
+// groupName resolves a group ID to its display name, or "" if unknown/unset.
+func (s *Server) groupName(id string) string {
+	if id == "" || s.groups == nil {
+		return ""
+	}
+	for _, g := range s.groups.ListGroups() {
+		if g.ID == id {
+			return g.Name
+		}
+	}
+	return ""
 }
 
 func extractPackageDecision(r *storedEvent, pd *ctv1.PmgPackageDecision) {

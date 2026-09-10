@@ -7,18 +7,23 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"strings"
 	"time"
 )
 
 // WebhookPayload is the JSON body sent to each webhook endpoint.
 type WebhookPayload struct {
-	Event      string    `json:"event"`
-	Timestamp  time.Time `json:"timestamp"`
-	GroupID    string    `json:"group_id,omitempty"`
-	Package    string    `json:"package,omitempty"`
-	Ecosystem  string    `json:"ecosystem,omitempty"`
-	Action     string    `json:"action,omitempty"`
-	EndpointID string    `json:"endpoint_id,omitempty"`
+	Event          string    `json:"event"`
+	Timestamp      time.Time `json:"timestamp"`
+	GroupID        string    `json:"group_id,omitempty"`
+	GroupName      string    `json:"group_name,omitempty"`
+	Package        string    `json:"package,omitempty"`
+	PackageVersion string    `json:"package_version,omitempty"`
+	Ecosystem      string    `json:"ecosystem,omitempty"`
+	Action         string    `json:"action,omitempty"`
+	EndpointID     string    `json:"endpoint_id,omitempty"`
+	Hostname       string    `json:"hostname,omitempty"`
+	IsMalware      bool      `json:"is_malware,omitempty"`
 }
 
 // WebhookDelivery dispatches webhook payloads asynchronously.
@@ -84,8 +89,7 @@ func (wd *WebhookDelivery) deliver(p WebhookPayload) {
 
 	// Fan out malware/blocked events to Telegram/Slack alert channels.
 	if p.Event == "malware_detected" || p.Event == "package_blocked" {
-		msg := fmt.Sprintf("🛡️ PMG alert: %s — %s %s on %s",
-			p.Event, p.Package, p.Ecosystem, p.EndpointID)
+		msg := alertMessage(p)
 		for _, ch := range cfg.AlertChannels {
 			if !ch.Enabled || !ch.OnMalware {
 				continue
@@ -97,6 +101,39 @@ func (wd *WebhookDelivery) deliver(p WebhookPayload) {
 			}(ch, msg)
 		}
 	}
+}
+
+// alertMessage builds a human-readable, multi-line alert message for
+// Telegram/Slack from a webhook payload.
+func alertMessage(p WebhookPayload) string {
+	icon, title := "🚫", "Package Blocked"
+	if p.IsMalware {
+		icon, title = "🛡️", "Malware Detected"
+	}
+
+	pkg := p.Package
+	if p.PackageVersion != "" {
+		pkg = fmt.Sprintf("%s@%s", p.Package, p.PackageVersion)
+	}
+
+	host := p.Hostname
+	if host == "" {
+		host = p.EndpointID
+	}
+
+	lines := []string{
+		fmt.Sprintf("%s PMG Alert: %s", icon, title),
+		fmt.Sprintf("Package: %s (%s)", pkg, p.Ecosystem),
+		fmt.Sprintf("Host: %s", host),
+	}
+	if p.GroupName != "" {
+		lines = append(lines, fmt.Sprintf("Group: %s", p.GroupName))
+	}
+	lines = append(lines,
+		fmt.Sprintf("Action: %s", p.Action),
+		fmt.Sprintf("Time: %s", p.Timestamp.UTC().Format("2006-01-02 15:04:05 UTC")),
+	)
+	return strings.Join(lines, "\n")
 }
 
 func (wd *WebhookDelivery) post(url string, p WebhookPayload) {
