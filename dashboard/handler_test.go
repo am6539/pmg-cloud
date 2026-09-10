@@ -265,6 +265,62 @@ func TestHandler_Heartbeat_ReturnsScanRequestedAndClearsFlag(t *testing.T) {
 	assert.Equal(t, false, resp2["scan_requested"])
 }
 
+func TestHandler_Policy_ReturnsCurrentPolicyForValidAPIKey(t *testing.T) {
+	dataDir := t.TempDir()
+	groups, err := NewGroupStore(dataDir)
+	require.NoError(t, err)
+	enrollment, err := NewEnrollmentStore(dataDir)
+	require.NoError(t, err)
+	policy, err := NewPolicyStore(dataDir)
+	require.NoError(t, err)
+	require.NoError(t, policy.AddRule("block", PolicyRule{Ecosystem: "npm", Name: "handlebars", Version: "4.7.9"}))
+
+	h := Handler(dataDir, HandlerDeps{Groups: groups, Enrollment: enrollment, Policy: policy})
+
+	group, err := groups.CreateGroup("vega")
+	require.NoError(t, err)
+	plainKey, _, err := groups.CreateAPIKey(group.ID, "agent-1 key")
+	require.NoError(t, err)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/policy", nil)
+	req.Header.Set("Authorization", plainKey)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+
+	var resp struct {
+		Policy Policy `json:"policy"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.Len(t, resp.Policy.Blocklist, 1)
+	assert.Equal(t, "handlebars", resp.Policy.Blocklist[0].Name)
+}
+
+func TestHandler_Policy_InvalidAPIKeyReturns401(t *testing.T) {
+	dataDir := t.TempDir()
+	groups, err := NewGroupStore(dataDir)
+	require.NoError(t, err)
+	h := Handler(dataDir, HandlerDeps{Groups: groups})
+
+	req := httptest.NewRequest(http.MethodGet, "/api/policy", nil)
+	req.Header.Set("Authorization", "not-a-real-key")
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	require.Equal(t, http.StatusUnauthorized, rec.Code)
+}
+
+func TestHandler_Policy_NoAPIKeyReturns401(t *testing.T) {
+	dataDir := t.TempDir()
+	groups, err := NewGroupStore(dataDir)
+	require.NoError(t, err)
+	h := Handler(dataDir, HandlerDeps{Groups: groups})
+
+	req := httptest.NewRequest(http.MethodGet, "/api/policy", nil)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	require.Equal(t, http.StatusUnauthorized, rec.Code)
+}
+
 func TestHandler_ScanReport_StartedUpdatesState(t *testing.T) {
 	h, groups, enrollment, _ := newEnrollHandlerWithAdmin(t)
 	group, err := groups.CreateGroup("vega")

@@ -1410,6 +1410,33 @@ func Handler(dataDir string, deps HandlerDeps) http.Handler {
 		})
 	}
 
+	// GET /api/policy — agent-authenticated, side-effect-free; lets the
+	// agent fetch the current org policy directly (e.g. at install time)
+	// instead of waiting for the next heartbeat. Only depends on Groups
+	// (for API key auth) and Policy, not Enrollment.
+	if deps.Groups != nil {
+		mux.HandleFunc("/api/policy", func(w http.ResponseWriter, r *http.Request) {
+			if r.Method != http.MethodGet {
+				http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+				return
+			}
+			apiKey := r.Header.Get("Authorization")
+			if apiKey == "" {
+				http.Error(w, `{"error":"unauthorized"}`, http.StatusUnauthorized)
+				return
+			}
+			if _, _, ok := deps.Groups.ResolveKeyWithID(apiKey); !ok {
+				http.Error(w, `{"error":"unauthorized"}`, http.StatusUnauthorized)
+				return
+			}
+			resp := map[string]any{}
+			if deps.Policy != nil {
+				resp["policy"] = deps.Policy.Get()
+			}
+			writeJSON(w, resp)
+		})
+	}
+
 	// Enrollment APIs — always active when Enrollment is wired.
 	if deps.Enrollment != nil {
 		enrollment := deps.Enrollment
@@ -2249,6 +2276,7 @@ func sessionMiddleware(h http.Handler, sessions *SessionStore) http.Handler {
 		"/api/me":          true,
 		"/api/enroll":      true,
 		"/api/heartbeat":   true, // agent API key auth, not session
+		"/api/policy":      true, // agent API key auth, not session
 		"/api/sync":        true, // agent sync, not session
 		"/api/scan-report": true, // agent API key auth, not session
 	}
