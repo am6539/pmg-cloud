@@ -73,13 +73,20 @@ input,select,button,textarea{font-family:inherit}
 .sec-title{font-size:14px;font-weight:600;margin-bottom:11px;display:flex;align-items:center;justify-content:space-between;gap:8px;letter-spacing:-.1px}
 .sec-title small{font-size:12px;font-weight:400;color:var(--tx3)}
 /* Tables */
-.tbl-wrap{background:var(--sf);border:1px solid var(--bd);border-radius:var(--r);overflow:hidden;margin-bottom:18px;box-shadow:var(--sh)}
+.tbl-wrap{background:var(--sf);border:1px solid var(--bd);border-radius:var(--r);overflow-x:auto;margin-bottom:18px;box-shadow:var(--sh)}
 table{width:100%;border-collapse:collapse;font-size:13px}
 th{text-align:left;padding:9px 14px;background:var(--hv2);color:var(--tx3);font-weight:700;font-size:10.5px;text-transform:uppercase;letter-spacing:.6px;border-bottom:1px solid var(--bd)}
 td{padding:10px 14px;border-bottom:1px solid var(--bd);color:var(--tx2);transition:background .1s}
 tr:last-child td{border-bottom:none}
 tr:hover td{background:var(--hv)}
 .clickable{cursor:pointer}
+/* Endpoint table: stable per-column classes (not fragile nth-child
+   indexes) so tablet/mobile breakpoints can target Group/Activity and
+   collapse to stacked cards without guessing column order. Mobile
+   overrides (incl. .content/.drawer width) live at the end of this
+   stylesheet so they win the cascade over the later base rules for
+   those same selectors. */
+@media(max-width:900px){.ep-col-opt{display:none}}
 /* Badges */
 .badge{display:inline-flex;align-items:center;padding:2px 9px;border-radius:999px;font-size:11px;font-weight:600;letter-spacing:.1px}
 .b-red{background:var(--dn-bg);color:var(--dn)}.b-green{background:var(--ok-bg);color:var(--ok)}.b-yellow{background:var(--wn-bg);color:var(--wn)}.b-gray{background:var(--hv);color:var(--tx3)}.b-teal{background:var(--pr-bg);color:var(--pr)}.b-blue{background:#eff6ff;color:#1d4ed8}
@@ -176,6 +183,22 @@ code{background:var(--hv);padding:2px 6px;border-radius:4px;font-family:'JetBrai
 .toast-success{background:#052e16;color:#4ade80;border:1px solid #166534}
 .toast-error{background:#450a0a;color:#fca5a5;border:1px solid #991b1b}
 .toast-info{background:var(--sf);color:var(--tx2);border:1px solid var(--bd)}
+/* Mobile endpoint table/drawer overrides. Placed last so they win the
+   cascade (equal specificity) over the base .content/.drawer/.ep-col-opt
+   rules defined earlier in this stylesheet. */
+@media(max-width:640px){
+  .content{padding:14px 16px}
+  .ep-table thead{display:none}
+  .ep-table,.ep-table tbody{display:block;width:100%}
+  .ep-table tr{display:block}
+  .ep-row{display:block;border:1px solid var(--bd);border-radius:8px;margin-bottom:10px;background:var(--sf)}
+  .ep-table td{display:flex;align-items:center;justify-content:space-between;gap:10px;width:100%;border-bottom:1px solid var(--bd)}
+  .ep-row td:last-child{border-bottom:none}
+  .ep-table td.ep-col-opt{display:flex}
+  .ep-table td::before{content:attr(data-label);font-size:10px;font-weight:700;color:var(--tx3);text-transform:uppercase;letter-spacing:.4px;flex-shrink:0}
+  .ep-col-actions{justify-content:flex-end}
+  .drawer{width:100vw;max-width:100vw}
+}
 </style>
 </head>
 <body>
@@ -189,12 +212,11 @@ code{background:var(--hv);padding:2px 6px;border-radius:4px;font-family:'JetBrai
     <div class="nav-section editor-hidden">Analytics</div>
     <div class="nav-item editor-hidden active" onclick="nav('dashboard')" data-page="dashboard">&#128202; Overview</div>
     <div class="nav-item editor-hidden" onclick="nav('events')" data-page="events">&#128203; Events</div>
-    <div class="nav-item editor-hidden" onclick="nav('endpoints')" data-page="endpoints">&#128187; Endpoints</div>
     <div class="nav-item editor-hidden" onclick="nav('packages')" data-page="packages">&#128230; Packages</div>
     <div class="nav-item editor-hidden" onclick="nav('cicd')" data-page="cicd">&#128256; CI / CD</div>
     <div class="nav-item editor-hidden" onclick="nav('malware')" data-page="malware">&#128737; Malware Feed</div>
     <div class="nav-section">Management</div>
-    <div class="nav-item" onclick="nav('agents')" data-page="agents">&#128290; Agents</div>
+    <div class="nav-item" onclick="nav('endpoints')" data-page="endpoints">&#128187; Endpoints</div>
     <div class="nav-item admin-only" onclick="nav('ecosystem')" data-page="ecosystem">&#129514; Ecosystem</div>
     <div class="nav-item admin-only" onclick="nav('groups')" data-page="groups">&#128101; Groups</div>
     <div class="nav-item admin-only" onclick="nav('audit')" data-page="audit">&#128220; Audit Log</div>
@@ -284,12 +306,14 @@ function showToast(msg,type){
   setTimeout(function(){t.classList.remove('show');setTimeout(function(){if(t.parentNode)t.parentNode.removeChild(t);},220);},3000);
 }
 /* ---- STATE ---- */
-var S={page:'dashboard',group:'',days:30,from:'',to:'',useRange:false,evOffset:0,evFilter:{type:'',action:'',malware:''},pkgTab:0,pkgSearch:'',pkgEcoFilter:'',malwareSearch:'',malwareEco:'',malwareOffset:0,dark:localStorage.dark==='1',groups:[],config:null,me:null,pendingUpdateVersion:null};
+var S={page:'dashboard',group:'',days:30,from:'',to:'',useRange:false,evOffset:0,evFilter:{type:'',action:'',malware:''},pkgTab:0,pkgSearch:'',pkgEcoFilter:'',malwareSearch:'',malwareEco:'',malwareOffset:0,dark:localStorage.dark==='1',groups:[],config:null,me:null,pendingUpdateVersion:null,
+epSearch:'',epStatusFilter:'',epTypeFilter:'',epGroupFilter:'',epOsFilter:'',epVersionFilter:'',epKpiFilter:''};
 
 document.addEventListener('DOMContentLoaded',function(){
   applyTheme();
   _installContentHook();
   var hashPage=location.hash.replace('#','');
+  if(hashPage==='agents')hashPage='endpoints';
   if(PAGE_TITLES[hashPage]){
     S.page=hashPage;
     document.querySelectorAll('.nav-item').forEach(function(el){el.classList.toggle('active',el.dataset.page===hashPage);});
@@ -381,8 +405,8 @@ function updateSidebarUser(){
   document.querySelectorAll('.admin-only').forEach(function(el){
     el.style.display=isAdmin?'':'none';
   });
-  // If editor, force nav to agents
-  if(isEditor){S.page='agents';}
+  // If editor, force nav to the unified Endpoints page
+  if(isEditor){S.page='endpoints';}
   if(S.me.must_change_password)setTimeout(showChangePwd,300);
 }
 
@@ -498,7 +522,7 @@ function buildQ(extra){
   return p.toString();
 }
 
-var PAGE_TITLES={dashboard:'Overview',events:'Events',endpoints:'Endpoints',packages:'Packages',cicd:'CI / CD',malware:'Malware Feed',agents:'Agents',ecosystem:'Ecosystem',groups:'Groups',audit:'Audit Log',settings:'Settings'};
+var PAGE_TITLES={dashboard:'Overview',events:'Events',endpoints:'Endpoints',packages:'Packages',cicd:'CI / CD',malware:'Malware Feed',ecosystem:'Ecosystem',groups:'Groups',audit:'Audit Log',settings:'Settings'};
 function nav(page){
   S.page=page;S.evOffset=0;
   history.replaceState(null,'','#'+page);
@@ -568,7 +592,6 @@ async function loadPage(manual){
     else if(S.page==='packages')await renderPackages();
     else if(S.page==='cicd')await renderCICD();
     else if(S.page==='malware')await renderMalware();
-    else if(S.page==='agents')await renderAgents();
     else if(S.page==='ecosystem')await renderEcosystemScan();
     else if(S.page==='groups')await renderGroups();
     else if(S.page==='audit')await renderAudit();
@@ -585,6 +608,10 @@ function bdg(t,c){c=c||'gray';return'<span class="badge b-'+c+'">'+h(t)+'</span>
 function actionBdg(a){var m={blocked:'red',cooldown_blocked:'red',confirmed:'green',trusted:'teal',allow:'green',block:'red',suspicious:'yellow',allow_install:'teal',block_install:'red',allow_lockfile:'teal'};return bdg(a||'—',m[(a||'').toLowerCase()]||'gray');}
 function ecoBdg(e){var m={npm:'blue',pypi:'yellow',go:'teal',cargo:'red',maven:'gray',nuget:'blue'};return bdg(e||'—',m[(e||'').toLowerCase()]||'gray');}
 function h(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+// Safe for embedding inside a single-quoted JS string literal within an inline
+// onclick="..." HTML attribute: escape backslash/quote for JS first, then
+// HTML-escape the result for the surrounding double-quoted attribute.
+function jsq(s){return h(String(s||'').replace(/\\/g,'\\\\').replace(/'/g,"\\'"));}
 function trunc(s,n){n=n||30;return(!s)?'—':s.length>n?h(s.slice(0,n))+'…':h(s);}
 function malwareBdg(v){if(v===true)return bdg('Malware','red');if(v===false)return bdg('Clean','green');return'—';}
 function verifiedBdg(v){if(v===true)return bdg('Verified','teal');return'—';}
@@ -718,6 +745,10 @@ function evPrev(){S.evOffset=Math.max(0,S.evOffset-50);loadPage();}
 function evNext(){S.evOffset+=50;loadPage();}
 
 /* ---- ENDPOINTS ---- */
+// Unified inventory of enrolled agents (Managed) and event-only sources
+// (Observed). agent_id addresses enrollment operations (rename, group,
+// scan, remove); endpoint_id addresses telemetry operations (events,
+// telemetry deletion). The two must never be assumed equal.
 var epList=[];
 var M30=30*60*1000,H2=12*60*60*1000;
 function epStatus(last_seen){
@@ -733,74 +764,256 @@ function statusDot(online){
     '<span class="dot dot-green dot-pulse" style="display:inline-block;margin-right:5px"></span>':
     '<span class="dot dot-gray" style="display:inline-block;margin-right:5px"></span>';
 }
-async function renderEndpoints(){
-  epList=await api('/api/endpoints?'+buildQ());
-  var csvUrl='/api/endpoints?'+buildQ({format:'csv'});
-  document.getElementById('content').innerHTML=
-'<div class="sec-title">Endpoints <small>'+epList.length+' total</small>'+
-'<a href="'+csvUrl+'" download="endpoints.csv" class="btn btn-sm btn-ghost">&#8681; CSV</a></div>'+
-'<div class="tbl-wrap"><table>'+
-'<thead><tr><th>Status</th><th>Endpoint ID</th><th>Device</th><th>OS</th><th>IP Address</th><th>PMG Version</th><th>Sessions</th><th>Packages</th><th>Blocked</th><th>Last Seen</th><th></th></tr></thead>'+
-'<tbody>'+(epList.length?epList.map(function(ep,i){
+// Managed when backed by an enrollment record (agent_id present); tolerate
+// older/missing `managed` by falling back to non-empty agent_id.
+function endpointType(ep){return(ep&&(ep.managed||ep.agent_id))?'Managed':'Observed';}
+function epOutdated(ep,latest){
+  var v=ep.tool_version||'';
+  if(!v||!latest)return false; // unknown versions are never outdated
+  return v!==latest;
+}
+function epBlockedInPeriod(ep){return(ep.blocked_packages||0)>0;}
+
+// Compares two version strings component-by-component (split on '.'),
+// treating each component as an integer when it is purely numeric and
+// falling back to a string comparison otherwise. A missing trailing
+// component is treated as 0 (so "1.2" === "1.2.0"). Returns -1/0/1.
+function compareVersions(a,b){
+  var pa=String(a||'').split('.'),pb=String(b||'').split('.');
+  var len=Math.max(pa.length,pb.length);
+  for(var i=0;i<len;i++){
+    var ca=pa[i]!==undefined?pa[i]:'0',cb=pb[i]!==undefined?pb[i]:'0';
+    var na=/^\d+$/.test(ca)?parseInt(ca,10):null;
+    var nb=/^\d+$/.test(cb)?parseInt(cb,10):null;
+    var cmp=(na!==null&&nb!==null)?(na-nb):(ca<cb?-1:(ca>cb?1:0));
+    if(cmp!==0)return cmp<0?-1:1;
+  }
+  return 0;
+}
+
+// Latest known PMG version across the (unfiltered) inventory, compared
+// numerically component-by-component (not lexically) so e.g. "2.10.0" is
+// correctly treated as newer than "2.9.0". Endpoints with no reported
+// version are excluded from the comparison.
+function epLatestVersion(list){
+  var known=(list||[]).map(function(ep){return ep.tool_version;}).filter(function(v){return v;});
+  if(!known.length)return'';
+  return known.reduce(function(best,v){return compareVersions(v,best)>0?v:best;});
+}
+
+// KPI counts are always computed from the full API result, not the
+// currently-filtered rows.
+function endpointKpis(list){
+  var latest=epLatestVersion(list);
+  var online=0,awayOffline=0,outdated=0,blocked=0;
+  (list||[]).forEach(function(ep){
+    if(epStatus(ep.last_seen).label==='Online')online++;else awayOffline++;
+    if(epOutdated(ep,latest))outdated++;
+    if(epBlockedInPeriod(ep))blocked++;
+  });
+  return{total:(list||[]).length,online:online,awayOffline:awayOffline,outdated:outdated,blocked:blocked,latest:latest};
+}
+
+// AND-filtering over search, status, type, group, OS, version, and the
+// active KPI selection.
+function filteredEndpoints(list,latest){
+  var search=(S.epSearch||'').trim().toLowerCase();
+  var statusF=S.epStatusFilter||'',typeF=S.epTypeFilter||'',groupF=S.epGroupFilter||'',
+      osF=S.epOsFilter||'',verF=S.epVersionFilter||'',kpiF=S.epKpiFilter||'';
+  return(list||[]).filter(function(ep){
+    if(search){
+      var hay=[ep.label,ep.hostname,ep.endpoint_id,ep.agent_id,ep.local_ip,ep.remote_ip].join(' ').toLowerCase();
+      if(hay.indexOf(search)===-1)return false;
+    }
+    if(statusF&&epStatus(ep.last_seen).label!==statusF)return false;
+    if(typeF&&endpointType(ep)!==typeF)return false;
+    if(groupF&&(ep.group_id||'')!==groupF)return false;
+    if(osF&&(ep.os||'')!==osF)return false;
+    if(verF){
+      if(verF==='Unknown'){if(ep.tool_version)return false;}
+      else if((ep.tool_version||'')!==verF)return false;
+    }
+    if(kpiF==='online'&&epStatus(ep.last_seen).label!=='Online')return false;
+    if(kpiF==='away_offline'&&epStatus(ep.last_seen).label==='Online')return false;
+    if(kpiF==='outdated'&&!epOutdated(ep,latest))return false;
+    if(kpiF==='blocked'&&!epBlockedInPeriod(ep))return false;
+    return true;
+  });
+}
+
+function epClearFilters(){
+  S.epSearch='';S.epStatusFilter='';S.epTypeFilter='';S.epGroupFilter='';S.epOsFilter='';S.epVersionFilter='';S.epKpiFilter='';
+  renderEndpointsBody();
+}
+// Re-filters the already-loaded epList on every keystroke without a network
+// fetch, and restores focus + caret position on the search input, since
+// renderEndpointsBody() replaces #content's innerHTML (and thus the input
+// element itself) on every call.
+function epSearchInput(el){
+  var pos=el.selectionStart,end=el.selectionEnd;
+  S.epSearch=el.value;
+  renderEndpointsBody();
+  var ni=document.getElementById('ep-search-input');
+  if(ni){
+    ni.focus();
+    try{ni.setSelectionRange(pos,end);}catch(e){}
+  }
+}
+function epToggleKpi(key){
+  S.epKpiFilter=(key&&S.epKpiFilter===key)?'':key;
+  renderEndpoints();
+}
+function epKpiCard(label,val,key,warn){
+  var active=!!key&&S.epKpiFilter===key;
+  return'<div class="kpi clickable'+(warn?' warn':'')+'"'+
+  ' style="'+(active?'box-shadow:0 0 0 2px var(--pr) inset,var(--sh)':'')+'"'+
+  ' onclick="epToggleKpi(\''+key+'\')">'+
+  '<div class="kpi-lbl">'+h(label)+'</div><div class="kpi-val">'+fmt(val)+'</div></div>';
+}
+
+// Role-aware contextual actions for one endpoint. Managed actions use
+// agent_id (enrollment operations); the Observed action uses endpoint_id
+// (telemetry operations). Actions are omitted, never disabled, when the
+// role/type combination does not support them.
+function endpointActions(ep){
+  if(!S.me)return'';
+  var role=S.me.role,managed=endpointType(ep)==='Managed',btns=[];
+  if(managed){
+    if(role==='admin'||role==='editor'){
+      btns.push('<button class="btn btn-sm btn-ghost" onclick="event.stopPropagation();renameAgent(\''+jsq(ep.agent_id)+'\',\''+jsq(ep.label||'')+'\')">Rename</button>');
+    }
+    if(role==='admin'){
+      btns.push('<button class="btn btn-sm btn-ghost" onclick="event.stopPropagation();openAssignGroup(\''+jsq(ep.agent_id)+'\',\''+jsq(ep.group_id||'')+'\')">Group</button>');
+      btns.push('<button class="btn btn-sm btn-ghost" onclick="event.stopPropagation();triggerScan(\''+jsq(ep.agent_id)+'\',\''+jsq(ep.hostname||ep.label||ep.agent_id)+'\')">Scan</button>');
+      btns.push('<button class="btn btn-sm btn-danger" onclick="event.stopPropagation();removeAgent(\''+jsq(ep.agent_id)+'\',\''+jsq(ep.hostname||ep.label||ep.agent_id)+'\')">Remove</button>');
+    }
+  }else if(role==='admin'){
+    btns.push('<button class="btn btn-sm btn-danger" onclick="event.stopPropagation();deleteEndpointEvents(\''+jsq(ep.endpoint_id)+'\')">Delete Telemetry</button>');
+  }
+  return btns.join('');
+}
+
+function endpointRow(ep,idx,groups){
   var st=epStatus(ep.last_seen);
-  return'<tr class="clickable" onclick="openEpDrawer('+i+')">'+
-  '<td style="white-space:nowrap"><span class="dot '+st.dot+'" style="display:inline-block;margin-right:5px"></span><span style="font-size:12px;font-weight:600;color:'+st.color+'">'+st.label+'</span></td>'+
-  '<td class="trunc mono" title="'+h(ep.endpoint_id)+'" style="font-size:11px">'+trunc(ep.endpoint_id,18)+'</td>'+
-  '<td>'+(ep.label?'<strong>'+h(ep.label)+'</strong><div style="font-size:11px;color:var(--tx4)">'+h(ep.hostname||'')+'</div>':(ep.hostname?h(ep.hostname):'—'))+(ep.removed?' '+bdg('Removed','gray'):'')+'</td>'+
-  '<td>'+bdg(ep.os||'—','gray')+'</td>'+
-  '<td class="mono" style="font-size:11px">'+(ep.local_ip?'<div>'+h(ep.local_ip)+'</div>':'')+(ep.remote_ip?'<div style="color:var(--tx4)">'+h(ep.remote_ip)+'</div>':'—')+'</td>'+
-  '<td>'+(ep.tool_version?h(ep.tool_version):'—')+'</td>'+
-  '<td>'+fmt(ep.sessions)+'</td>'+
-  '<td>'+fmt(ep.total_packages)+'</td>'+
-  '<td>'+((ep.blocked_packages||0)>0?bdg(fmt(ep.blocked_packages),'red'):'0')+'</td>'+
-  '<td style="font-size:12px;color:var(--tx3)">'+fmtDate(ep.last_seen)+'</td>'+
-  '<td onclick="event.stopPropagation()">'+(S.me&&S.me.role==='admin'?
-    '<div style="display:flex;gap:6px">'+
-    '<button class="btn btn-sm btn-warning" onclick="removeAgent(\''+h(ep.endpoint_id)+'\',\''+h(ep.hostname||ep.endpoint_id)+'\')">Remove</button>'+
-    '<button class="btn btn-sm btn-danger" onclick="deleteAgentEvents(\''+h(ep.endpoint_id)+'\')">Delete Events</button>'+
-    '</div>'
-  :'')+'</td></tr>';
-}).join(''):'<tr><td colspan="11" class="empty">No endpoints</td></tr>')+
-'</tbody></table></div>'+versionCompliance(epList);
+  var type=endpointType(ep);
+  var grp=groups.find(function(g){return g.id===ep.group_id;})||null;
+  var shortId=ep.endpoint_id?ep.endpoint_id.slice(0,10)+(ep.endpoint_id.length>10?'…':''):'—';
+  var device=ep.label
+    ?'<strong>'+h(ep.label)+'</strong><div style="font-size:11px;color:var(--tx4)">'+h(ep.hostname||'')+'</div>'
+    :(ep.hostname?'<strong>'+h(ep.hostname)+'</strong>':'<span style="color:var(--tx4)">unnamed</span>');
+  return'<tr class="clickable ep-row" onclick="openEpDrawer('+idx+')">'+
+  '<td class="ep-col-status" data-label="Status" style="white-space:nowrap"><span class="dot '+st.dot+'" style="display:inline-block;margin-right:5px"></span><span style="font-size:12px;font-weight:600;color:'+st.color+'">'+st.label+'</span></td>'+
+  '<td class="ep-col-device" data-label="Device">'+device+(ep.removed?' '+bdg('Removed','gray'):'')+'<div class="mono" style="font-size:10px;color:var(--tx4)">'+h(shortId)+'</div></td>'+
+  '<td class="ep-col-type" data-label="Type">'+bdg(type,type==='Managed'?'teal':'gray')+'</td>'+
+  '<td class="ep-col-platform" data-label="Platform" style="font-size:12px;color:var(--tx3)">'+(ep.os?h(ep.os):'—')+(ep.arch?' / '+h(ep.arch):'')+(ep.tool_version?'<div><code style="font-size:10px">v'+h(ep.tool_version)+'</code></div>':'')+'</td>'+
+  '<td class="ep-col-opt ep-col-group" data-label="Group">'+(grp?bdg(grp.name,'teal'):'<span style="color:var(--tx4)">unassigned</span>')+'</td>'+
+  '<td class="ep-col-opt ep-col-activity" data-label="Activity" style="font-size:12px">'+fmt(ep.sessions)+' sess &middot; '+fmt(ep.total_packages)+' pkgs'+((ep.blocked_packages||0)>0?' &middot; '+bdg(fmt(ep.blocked_packages),'red'):'')+'</td>'+
+  '<td class="ep-col-lastseen" data-label="Last Seen" style="font-size:12px;color:'+(st.label==='Offline'?'var(--dn)':'var(--tx3)')+'">'+fmtDate(ep.last_seen)+'</td>'+
+  '<td class="ep-col-actions" data-label="Scan / Actions" onclick="event.stopPropagation()"><div class="flex" style="gap:5px;flex-wrap:wrap">'+(type==='Managed'?scanStateBadge(ep):'')+endpointActions(ep)+'</div></td>'+
+  '</tr>';
 }
 
-function versionCompliance(eps){
-  if(!eps.length)return'';
-  var vc={};
-  eps.forEach(function(ep){var v=ep.tool_version||'unknown';vc[v]=(vc[v]||0)+1;});
-  var knownVers=Object.keys(vc).filter(function(v){return v!=='unknown';}).sort();
-  var latest=knownVers.length?knownVers[knownVers.length-1]:'unknown';
-  var outdated=eps.filter(function(ep){return(ep.tool_version||'unknown')!==latest;}).length;
-  return'<div class="card"><div class="card-title">PMG Version Compliance '+
-  (outdated>0?bdg(outdated+' outdated','red'):bdg('All up-to-date','green'))+'</div>'+
-  '<p style="font-size:13px;color:var(--tx3);margin-bottom:12px">Latest detected: <strong>'+h(latest)+'</strong></p>'+
-  '<div class="tbl-wrap"><table><thead><tr><th>Version</th><th>Endpoints</th><th>Status</th></tr></thead><tbody>'+
-  Object.keys(vc).sort().map(function(v){
-    return'<tr><td class="mono">'+h(v)+'</td><td>'+vc[v]+'</td><td>'+(v===latest?bdg('Latest','green'):bdg('Outdated','yellow'))+'</td></tr>';
-  }).join('')+'</tbody></table></div></div>';
+async function renderEndpoints(){
+  var content=document.getElementById('content');
+  try{
+    epList=await api('/api/endpoints?'+buildQ());
+  }catch(e){
+    content.innerHTML='<div class="empty">&#9888;&#65039; '+h(e.message)+'</div>';
+    return;
+  }
+  renderEndpointsBody();
 }
 
-var _drawerEp=null,_drawerTab='overview',_drawerEvents=[];
+// Rebuilds #content from the already-loaded epList, without a network
+// round-trip. Safe to call on every keystroke/filter-change.
+function renderEndpointsBody(){
+  var content=document.getElementById('content');
+  var csvUrl='/api/endpoints?'+buildQ({format:'csv'});
+  var groups=S.groups||[];
+  var isAdmin=S.me&&S.me.role==='admin';
+  var kpi=endpointKpis(epList);
+  var filtered=filteredEndpoints(epList,kpi.latest);
+  var osOptions=Array.from(new Set(epList.map(function(ep){return ep.os;}).filter(Boolean))).sort();
+  var verOptions=Array.from(new Set(epList.map(function(ep){return ep.tool_version;}).filter(Boolean))).sort();
+
+  content.innerHTML=
+'<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;margin-bottom:16px">'+
+'<div><div class="sec-title" style="margin:0">Endpoints <small>'+epList.length+' total</small></div>'+
+'<div style="font-size:12.5px;color:var(--tx3);margin-top:2px">Manage enrolled agents and observed event sources.</div></div>'+
+'<div class="flex" style="gap:8px;flex-wrap:wrap">'+
+'<a href="'+csvUrl+'" download="endpoints.csv" class="btn btn-sm btn-ghost">&#8681; CSV</a>'+
+(isAdmin?
+  '<button class="btn btn-ghost btn-sm" onclick="openEnrollmentTokens()">Enrollment Tokens</button>'+
+  '<button class="btn btn-ghost btn-sm" onclick="triggerScanAll()">Scan All</button>'+
+  '<button class="btn btn-primary btn-sm" onclick="openDeployWizard()">&#43; Deploy Agent</button>'
+:'')+
+'</div></div>'+
+'<div class="kpi-grid">'+
+epKpiCard('Total',kpi.total,'')+
+epKpiCard('Online',kpi.online,'online')+
+epKpiCard('Away / Offline',kpi.awayOffline,'away_offline')+
+epKpiCard('Outdated',kpi.outdated,'outdated',kpi.outdated>0)+
+epKpiCard('Blocked',kpi.blocked,'blocked',kpi.blocked>0)+
+'</div>'+
+'<div class="filter-bar">'+
+'<input id="ep-search-input" class="input" style="flex:1;min-width:160px;max-width:260px" placeholder="Search device, host, IP..." value="'+h(S.epSearch||'')+'" oninput="epSearchInput(this)">'+
+'<select onchange="S.epStatusFilter=this.value;renderEndpointsBody()">'+
+'<option value="">All statuses</option>'+
+['Online','Away','Offline'].map(function(st){return'<option value="'+st+'"'+(S.epStatusFilter===st?' selected':'')+'>'+st+'</option>';}).join('')+
+'</select>'+
+'<select onchange="S.epTypeFilter=this.value;renderEndpointsBody()">'+
+'<option value="">All types</option>'+
+['Managed','Observed'].map(function(t){return'<option value="'+t+'"'+(S.epTypeFilter===t?' selected':'')+'>'+t+'</option>';}).join('')+
+'</select>'+
+'<select onchange="S.epGroupFilter=this.value;renderEndpointsBody()">'+
+'<option value="">All groups</option>'+
+groups.map(function(g){return'<option value="'+h(g.id)+'"'+(S.epGroupFilter===g.id?' selected':'')+'>'+h(g.name)+'</option>';}).join('')+
+'</select>'+
+'<select onchange="S.epOsFilter=this.value;renderEndpointsBody()">'+
+'<option value="">All OS</option>'+
+osOptions.map(function(o){return'<option value="'+h(o)+'"'+(S.epOsFilter===o?' selected':'')+'>'+h(o)+'</option>';}).join('')+
+'</select>'+
+'<select onchange="S.epVersionFilter=this.value;renderEndpointsBody()">'+
+'<option value="">All versions</option>'+
+verOptions.map(function(v){return'<option value="'+h(v)+'"'+(S.epVersionFilter===v?' selected':'')+'>'+h(v)+'</option>';}).join('')+
+'<option value="Unknown"'+(S.epVersionFilter==='Unknown'?' selected':'')+'>Unknown</option>'+
+'</select>'+
+'<button class="btn btn-sm btn-ghost" onclick="epClearFilters()">Clear</button>'+
+'</div>'+
+'<div class="tbl-wrap"><table class="ep-table">'+
+'<thead><tr><th class="ep-col-status">Status</th><th class="ep-col-device">Device</th><th class="ep-col-type">Type</th><th class="ep-col-platform">Platform</th><th class="ep-col-opt ep-col-group">Group</th><th class="ep-col-opt ep-col-activity">Activity</th><th class="ep-col-lastseen">Last Seen</th><th class="ep-col-actions">Scan / Actions</th></tr></thead>'+
+'<tbody>'+(filtered.length?filtered.map(function(ep){
+  return endpointRow(ep,epList.indexOf(ep),groups);
+}).join(''):'<tr><td colspan="8" class="empty">'+(epList.length?'No endpoints match the current filters.':'No endpoints found.')+'</td></tr>')+
+'</tbody></table></div>';
+}
+
+var _drawerEp=null,_drawerTab='overview',_drawerEvents=[],_drawerEvErr=null,_drawerEvLoading=false;
 function openEpDrawer(i){
   var ep=epList[i];if(!ep)return;
-  _drawerEp=ep;_drawerTab='overview';_drawerEvents=[];
+  _drawerEp=ep;_drawerTab='overview';_drawerEvents=[];_drawerEvErr=null;_drawerEvLoading=true;
   var st=epStatus(ep.last_seen);
+  var type=endpointType(ep);
   document.getElementById('drawer-title').textContent=ep.label||ep.hostname||ep.endpoint_id;
   document.getElementById('drawer-meta').innerHTML=
     '<span class="dot '+st.dot+'" style="margin-right:4px"></span>'+
     '<span style="font-size:11px;font-weight:600;color:'+st.color+'">'+st.label+'</span>'+
+    ' <span style="font-size:11px;color:var(--tx4)">&middot;</span> '+bdg(type,type==='Managed'?'teal':'gray')+
     (ep.tool_version?' <span style="font-size:11px;color:var(--tx4)">·</span> <code style="font-size:10px">'+h(ep.tool_version)+'</code>':'');
   document.getElementById('drawer-tabs').innerHTML=
     '<button class="drawer-tab active" onclick="switchEpTab(\'overview\')">Overview</button>'+
     '<button class="drawer-tab" onclick="switchEpTab(\'events\')">Events</button>'+
     '<button class="drawer-tab" onclick="switchEpTab(\'packages\')">Packages</button>';
-  document.getElementById('drawer-body').innerHTML='<div class="empty"><span class="spin">&#8635;</span> Loading&#8230;</div>';
   document.getElementById('drawer-bg').style.display='block';
   setTimeout(function(){document.getElementById('drawer').classList.add('open');},10);
-  api('/api/endpoints/'+encodeURIComponent(ep.endpoint_id)+'/events').then(function(evs){
-    _drawerEvents=evs||[];
+  renderEpTab(); // Overview renders immediately from already-loaded endpoint data
+  api('/api/endpoints/'+encodeURIComponent(ep.endpoint_id)+'/events?'+buildQ()).then(function(evs){
+    _drawerEvents=evs||[];_drawerEvLoading=false;
     renderEpTab();
-  }).catch(function(e){document.getElementById('drawer-body').innerHTML='<div class="empty">Error: '+h(e.message)+'</div>';});
+  }).catch(function(e){
+    _drawerEvErr=e.message;_drawerEvLoading=false;
+    renderEpTab();
+  });
 }
 function switchEpTab(tab){
   _drawerTab=tab;
@@ -811,6 +1024,9 @@ function renderEpTab(){
   var ep=_drawerEp;if(!ep)return;
   var body=document.getElementById('drawer-body');
   if(_drawerTab==='overview'){
+    var type=endpointType(ep);
+    var grp=(S.groups||[]).find(function(g){return g.id===ep.group_id;})||null;
+    var actions=endpointActions(ep);
     body.innerHTML=
     '<div class="ep-stat-row">'+
     '<div class="ep-stat"><div class="ep-stat-val">'+fmt(ep.sessions)+'</div><div class="ep-stat-lbl">Sessions</div></div>'+
@@ -818,18 +1034,28 @@ function renderEpTab(){
     '<div class="ep-stat'+((ep.blocked_packages||0)>0?' danger':'')+'"><div class="ep-stat-val">'+fmt(ep.blocked_packages||0)+'</div><div class="ep-stat-lbl">Blocked</div></div>'+
     '</div>'+
     '<div class="ep-info-grid">'+
+    '<div class="ep-info-cell"><div class="lbl">Type</div><div style="margin-top:2px">'+bdg(type,type==='Managed'?'teal':'gray')+'</div></div>'+
+    '<div class="ep-info-cell"><div class="lbl">Group</div><div style="font-size:13px;color:var(--tx2);margin-top:2px">'+(grp?bdg(grp.name,'teal'):'<span style="color:var(--tx4)">unassigned</span>')+'</div></div>'+
     '<div class="ep-info-cell"><div class="lbl">Hostname</div><div style="font-size:13px;color:var(--tx2)">'+h(ep.hostname||'—')+'</div></div>'+
     '<div class="ep-info-cell"><div class="lbl">Label</div><div style="font-size:13px;color:var(--tx2)">'+h(ep.label||'—')+'</div></div>'+
     '<div class="ep-info-cell"><div class="lbl">Local IP</div><div class="mono" style="font-size:12px">'+(ep.local_ip?h(ep.local_ip):'—')+'</div></div>'+
     '<div class="ep-info-cell"><div class="lbl">Public IP</div><div class="mono" style="font-size:12px">'+(ep.remote_ip?h(ep.remote_ip):'—')+'</div></div>'+
     '<div class="ep-info-cell"><div class="lbl">OS / Arch</div><div style="font-size:12px">'+(ep.os?h(ep.os):'—')+' / '+(ep.arch?h(ep.arch):'—')+'</div></div>'+
     '<div class="ep-info-cell"><div class="lbl">PMG Version</div><div style="font-size:12px">'+(ep.tool_version?h(ep.tool_version):'—')+'</div></div>'+
-    '<div class="ep-info-cell"><div class="lbl">Last Seen</div><div style="font-size:12px">'+fmtDate(ep.last_seen)+'</div></div>'+
+    '<div class="ep-info-cell"><div class="lbl">Enrolled</div><div style="font-size:12px">'+(type==='Managed'?fmtDate(ep.enrolled_at):'—')+'</div></div>'+
     '<div class="ep-info-cell"><div class="lbl">First Seen</div><div style="font-size:12px">'+fmtDate(ep.first_seen)+'</div></div>'+
-    '<div class="ep-info-cell" style="grid-column:1/-1"><div class="lbl">Endpoint ID</div><div class="mono" style="font-size:10px;word-break:break-all">'+h(ep.endpoint_id)+'</div></div>'+
+    '<div class="ep-info-cell"><div class="lbl">Last Seen</div><div style="font-size:12px">'+fmtDate(ep.last_seen)+'</div></div>'+
+    '<div class="ep-info-cell"><div class="lbl">Scan State</div><div style="margin-top:2px">'+(type==='Managed'?scanStateBadge(ep):'<span style="color:var(--tx4)">—</span>')+'</div></div>'+
+    '<div class="ep-info-cell"><div class="lbl">Last Scan</div><div style="font-size:12px">'+(type==='Managed'?fmtDate(ep.last_scan_at):'—')+'</div></div>'+
+    '<div class="ep-info-cell"><div class="lbl">Flagged</div><div style="font-size:12px">'+(type==='Managed'?(ep.last_scan_summary&&ep.last_scan_summary.flagged_count!=null?fmt(ep.last_scan_summary.flagged_count):'—'):'—')+'</div></div>'+
+    '<div class="ep-info-cell" style="grid-column:1/-1"><div class="lbl">Endpoint ID <span style="font-weight:400;color:var(--tx4)">(telemetry)</span></div><div class="mono" style="font-size:10px;word-break:break-all">'+h(ep.endpoint_id)+'</div></div>'+
+    (ep.agent_id?'<div class="ep-info-cell" style="grid-column:1/-1"><div class="lbl">Agent ID <span style="font-weight:400;color:var(--tx4)">(enrollment)</span></div><div class="mono" style="font-size:10px;word-break:break-all">'+h(ep.agent_id)+'</div></div>':'')+
     '<div class="ep-info-cell" style="grid-column:1/-1"><div class="lbl">Machine ID</div><div class="mono" style="font-size:11px;word-break:break-all">'+(ep.machine_id?h(ep.machine_id):'—')+'</div></div>'+
-    '</div>';
+    '</div>'+
+    (actions?'<div class="flex" style="gap:8px;margin-top:14px;flex-wrap:wrap">'+actions+'</div>':'');
   }else if(_drawerTab==='events'){
+    if(_drawerEvLoading){body.innerHTML='<div class="empty"><span class="spin">&#8635;</span> Loading&#8230;</div>';return;}
+    if(_drawerEvErr){body.innerHTML='<div class="empty">&#9888;&#65039; '+h(_drawerEvErr)+'</div>';return;}
     var evs=_drawerEvents;
     body.innerHTML=
     '<div style="font-size:13px;font-weight:600;margin-bottom:12px;color:var(--tx2)">Recent Events ('+evs.length+')</div>'+
@@ -842,13 +1068,16 @@ function renderEpTab(){
       '</div></div>';
     }).join(''):'<div class="empty">No events</div>');
   }else if(_drawerTab==='packages'){
+    if(_drawerEvLoading){body.innerHTML='<div class="empty"><span class="spin">&#8635;</span> Loading&#8230;</div>';return;}
+    if(_drawerEvErr){body.innerHTML='<div class="empty">&#9888;&#65039; '+h(_drawerEvErr)+'</div>';return;}
     var pkgMap={};
     _drawerEvents.forEach(function(ev){
       if(!ev.package_name)return;
       var k=ev.package_name;
       if(!pkgMap[k])pkgMap[k]={name:k,ecosystem:ev.ecosystem,count:0,blocked:0};
       pkgMap[k].count++;
-      if(ev.action==='block'||ev.action==='block_install')pkgMap[k].blocked++;
+      var _act=(ev.action||'').toLowerCase();
+      if(_act==='block'||_act==='block_install'||_act==='blocked'||_act==='cooldown_blocked')pkgMap[k].blocked++;
     });
     var pkgs=Object.values(pkgMap).sort(function(a,b){return b.count-a.count;});
     body.innerHTML=
@@ -864,7 +1093,7 @@ function renderEpTab(){
 function closeDrawer(){
   document.getElementById('drawer').classList.remove('open');
   document.getElementById('drawer-bg').style.display='none';
-  _drawerEp=null;_drawerTab='overview';_drawerEvents=[];
+  _drawerEp=null;_drawerTab='overview';_drawerEvents=[];_drawerEvErr=null;_drawerEvLoading=false;
 }
 
 /* ---- PACKAGES ---- */
@@ -1215,73 +1444,35 @@ async function refreshFeed(btn){
   catch(e){showToast('Refresh failed: '+e.message,'error');btn.disabled=false;btn.textContent='↻ Refresh Feed';}
 }
 
-/* ---- AGENTS ---- */
-async function renderAgents(){
-  var agents=[];var tokens=[];
-  try{agents=await api('/api/agents');}catch(e){}
-  agents=(agents||[]).filter(function(a){return a&&!a.removed;});
-  if(S.me&&S.me.role==='admin'){try{tokens=await api('/api/enrollment-tokens');}catch(e){}}
+/* ---- ENROLLMENT / AGENT MANAGEMENT WORKFLOWS ----
+   Enrollment tokens are an administrative modal, not a second fleet
+   inventory (see openEnrollmentTokens). Deploy/token/rename/group/
+   scan/remove workflows are shared with renderEndpoints() and refresh the
+   unified Endpoints page (and close the drawer, if one is open) when
+   they complete. */
+async function openEnrollmentTokens(){
+  var tokens=[];
+  try{tokens=await api('/api/enrollment-tokens');}catch(e){}
   var groups=S.groups||[];
-  var missing=agents.filter(function(a){return epStatus(a.last_seen).label==='Offline';});
-  var missingBanner=missing.length?
-    '<div class="alert-bar danger" style="display:flex;border-radius:9px;margin-bottom:16px;border:1px solid #fca5a5">'+
-    '&#9888;&#65039; <strong>'+missing.length+' agent'+(missing.length>1?'s':'')+' offline</strong> — last heartbeat &gt; 12 hours ago: '+
-    missing.map(function(a){return'<code>'+h(a.hostname)+'</code>';}).join(', ')+'</div>':'';
-  document.getElementById('content').innerHTML=
-missingBanner+
-(S.me&&S.me.role==='admin'?
-'<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">'+
-'<div class="sec-title" style="margin:0">Enrolled Agents <small>'+agents.length+' total</small></div>'+
-'<div class="flex" style="gap:8px">'+
-'<button class="btn btn-ghost" onclick="triggerScanAll()">Scan All ('+agents.length+')</button>'+
-'<button class="btn btn-primary" onclick="openDeployWizard()">&#43; Deploy New Agent</button>'+
-'</div></div>':
-'<div class="sec-title">Enrolled Agents <small>'+agents.length+' total</small></div>')+
-'<div class="tbl-wrap"><table><thead><tr><th>Status</th><th>Device</th><th>OS / Arch</th><th>IP Address</th><th>Group</th><th>Enrolled</th><th>Last Seen</th><th>Scan</th><th></th></tr></thead><tbody>'+
-(agents.length?agents.map(function(a){
-  var grp=groups.find(function(g){return g.id===a.group_id;})||null;
-  var age=a.last_seen?(Date.now()-new Date(a.last_seen).getTime()):Infinity;
-  var st=epStatus(a.last_seen);
-  var stLabel=st.label,stDot=st.dot,stColor=st.color;
-  var statusCell='<td style="white-space:nowrap"><span class="dot '+stDot+'" style="display:inline-block;margin-right:5px"></span><span style="font-size:12px;font-weight:600;color:'+stColor+'">'+stLabel+'</span></td>';
-  var deviceCell=a.label
-    ? '<strong>'+h(a.label)+'</strong><div style="font-size:11px;color:var(--tx4)">'+h(a.hostname)+'</div>'
-    : '<strong>'+h(a.hostname)+'</strong><div style="font-size:11px;color:var(--tx4)">unnamed</div>';
-  return'<tr>'+statusCell+
-  '<td>'+deviceCell+'</td>'+
-  '<td style="font-size:12px;color:var(--tx3)">'+h(a.os||'')+(a.arch?' / '+h(a.arch):'')+(a.pmg_version?' &nbsp;<code>v'+h(a.pmg_version)+'</code>':'')+'</td>'+
-  '<td class="mono" style="font-size:11px">'+(a.local_ip?'<div>'+h(a.local_ip)+'</div>':'')+(a.remote_ip?'<div style="color:var(--tx4)">'+h(a.remote_ip)+'</div>':'—')+'</td>'+
-  '<td>'+(grp?bdg(grp.name,'teal'):'<span style="color:var(--tx4)">unassigned</span>')+'</td>'+
-  '<td style="font-size:12px;color:var(--tx3)">'+fmtDate(a.enrolled_at)+'</td>'+
-  '<td style="font-size:12px;color:'+(st.label==='Offline'?'var(--dn)':'var(--tx3)')+'">'+fmtDate(a.last_seen)+'</td>'+
-  '<td>'+scanStateBadge(a)+'</td>'+
-  '<td class="flex" style="gap:4px">'+
-  (S.me&&(S.me.role==='admin'||S.me.role==='editor')?
-    '<button class="btn btn-sm btn-ghost" onclick="renameAgent(\''+h(a.id)+'\',\''+h(a.label||'')+'\')">Rename</button>':'')+
-  (S.me&&S.me.role==='admin'?
-    '<button class="btn btn-sm btn-ghost" onclick="openAssignGroup(\''+h(a.id)+'\',\''+h(a.group_id||'')+'\')">Group</button>'+
-    '<button class="btn btn-sm btn-ghost" onclick="triggerScan(\''+h(a.id)+'\',\''+h(a.hostname)+'\')">Scan</button>'+
-    '<button class="btn btn-sm btn-danger" onclick="removeAgent(\''+h(a.id)+'\',\''+h(a.hostname)+'\')">Remove</button>':'')+
-  '</td></tr>';
-}).join(''):'<tr><td colspan="9" class="empty">No agents enrolled yet.</td></tr>')+
-'</tbody></table></div>'+
-(S.me&&S.me.role==='admin'?
-'<div class="sec-title" style="margin-top:18px">Enrollment Tokens'+
-'<button class="btn btn-ghost btn-sm" onclick="openCreateToken()">+ New Token</button></div>'+
-'<div class="tbl-wrap"><table><thead><tr><th>Label</th><th>Prefix</th><th>Group</th><th>Uses</th><th>Expires</th><th></th></tr></thead><tbody>'+
-(tokens.filter(function(t){return!t.revoked;}).length?
-  tokens.filter(function(t){return!t.revoked;}).map(function(t){
-    var grp=groups.find(function(g){return g.id===t.group_id;})||null;
-    return'<tr>'+
-    '<td><strong>'+h(t.label||'(no label)')+'</strong></td>'+
-    '<td class="mono" style="font-size:11px">'+h(t.token_prefix)+'…</td>'+
-    '<td>'+(grp?bdg(grp.name,'teal'):'<span style="color:var(--tx4)">any</span>')+'</td>'+
-    '<td style="font-size:12px">'+(t.max_uses>0?t.use_count+'/'+t.max_uses:t.use_count+' (unlimited)')+'</td>'+
-    '<td style="font-size:12px;color:var(--tx3)">'+fmtDate(t.expires_at)+'</td>'+
-    '<td><button class="btn btn-sm btn-danger" onclick="revokeEnrollToken(\''+h(t.id)+'\')">Revoke</button></td></tr>';
-  }).join(''):'<tr><td colspan="6" class="empty">No active tokens — use Deploy New Agent to create one.</td></tr>')+
-'</tbody></table></div>'
-:'');
+  var active=(tokens||[]).filter(function(t){return!t.revoked;});
+  showModal(
+    '<div class="modal-title">Enrollment Tokens <button class="icon-btn" onclick="closeModal()">&#x2715;</button></div>'+
+    '<div style="display:flex;justify-content:flex-end;margin-bottom:10px">'+
+    '<button class="btn btn-ghost btn-sm" onclick="openCreateToken()">+ New Token</button></div>'+
+    '<div class="tbl-wrap"><table><thead><tr><th>Label</th><th>Prefix</th><th>Group</th><th>Uses</th><th>Expires</th><th></th></tr></thead><tbody>'+
+    (active.length?active.map(function(t){
+      var grp=groups.find(function(g){return g.id===t.group_id;})||null;
+      return'<tr>'+
+      '<td><strong>'+h(t.label||'(no label)')+'</strong></td>'+
+      '<td class="mono" style="font-size:11px">'+h(t.token_prefix)+'…</td>'+
+      '<td>'+(grp?bdg(grp.name,'teal'):'<span style="color:var(--tx4)">any</span>')+'</td>'+
+      '<td style="font-size:12px">'+(t.max_uses>0?t.use_count+'/'+t.max_uses:t.use_count+' (unlimited)')+'</td>'+
+      '<td style="font-size:12px;color:var(--tx3)">'+fmtDate(t.expires_at)+'</td>'+
+      '<td><button class="btn btn-sm btn-danger" onclick="revokeEnrollToken(\''+h(t.id)+'\')">Revoke</button></td></tr>';
+    }).join(''):'<tr><td colspan="6" class="empty">No active tokens — use Deploy Agent to create one.</td></tr>')+
+    '</tbody></table></div>'+
+    '<div class="modal-footer"><button class="btn btn-ghost" onclick="closeModal()">Close</button></div>'
+  );
 }
 
 function openDeployWizard(){
@@ -1346,7 +1537,7 @@ function _showWizStep(){
     '<div style="font-size:11.5px;color:var(--tx3);margin-top:10px;line-height:1.5">'+(w.os==='windows'?'Run in <strong>PowerShell</strong> (not CMD). The script installs PMG, enrolls the machine, and adds pmg.exe to PATH automatically.':'This command installs PMG, enrolls the machine, and wires PMG into the shell automatically.')+'<br>Restart the terminal after running to activate.</div>'+
     '<div class="modal-footer">'+
     '<button class="btn btn-primary" id="wiz-copy-btn" onclick="navigator.clipboard.writeText(document.getElementById(\'wiz-cmd-box\').textContent).then(function(){document.getElementById(\'wiz-copy-btn\').textContent=\'✓ Copied\';})">&#128203; Copy Command</button>'+
-    '<button class="btn btn-ghost" onclick="closeModal();renderAgents()">Done</button></div>';
+    '<button class="btn btn-ghost" onclick="closeModal();renderEndpoints()">Done</button></div>';
   }
   showModal('<div class="modal-title">Deploy New Agent <button class="icon-btn" onclick="closeModal()">&#x2715;</button></div>'+_wizStepBar(w.step)+body);
   if(w.step===2){setTimeout(function(){var el=document.getElementById('wiz-label');if(el)el.focus();},80);}
@@ -1396,7 +1587,7 @@ async function createEnrollToken(){
     var origin=window.location.origin;
     var installCmd='curl -fsSL '+origin+'/install.sh | sh -s -- --token='+token;
     closeModal();
-    showModal('<div class="modal-title">&#10003; Token Created <button class="icon-btn" onclick="closeModal();renderAgents()">&#x2715;</button></div>'+
+    showModal('<div class="modal-title">&#10003; Token Created <button class="icon-btn" onclick="closeModal();renderEndpoints()">&#x2715;</button></div>'+
     '<div style="color:var(--dn);font-size:13px;margin-bottom:10px;padding:10px;background:var(--dn-bg);border-radius:8px">'+
     '&#9888;&#65039; Copy this token now — it will <strong>not</strong> be shown again.</div>'+
     '<p style="font-size:12px;color:var(--tx3);margin-bottom:4px">Token:</p>'+
@@ -1405,13 +1596,13 @@ async function createEnrollToken(){
     '<div class="key-box" style="font-size:11px" id="et-cmd-box">'+h(installCmd)+'</div>'+
     '<div class="modal-footer">'+
     '<button class="btn btn-primary" id="et-copy-btn" onclick="navigator.clipboard.writeText(document.getElementById(\'et-cmd-box\').textContent).then(function(){document.getElementById(\'et-copy-btn\').textContent=\'Copied ✓\';})">&#128203; Copy Command</button>'+
-    '<button class="btn btn-ghost" onclick="closeModal();renderAgents()">Done</button></div>');
+    '<button class="btn btn-ghost" onclick="closeModal();renderEndpoints()">Done</button></div>');
   }catch(e){showToast('Error: '+e.message,'error');}
 }
 
 async function revokeEnrollToken(id){
   if(!confirm('Revoke this enrollment token? Machines that haven\'t enrolled yet won\'t be able to use it.'))return;
-  try{await fetch('/api/enrollment-tokens/'+id,{method:'DELETE'});await renderAgents();}
+  try{await fetch('/api/enrollment-tokens/'+id,{method:'DELETE'});await openEnrollmentTokens();}
   catch(e){showToast('Error: '+e.message,'error');}
 }
 
@@ -1426,19 +1617,25 @@ function openAssignGroup(agentId,currentGroupId){
 async function assignAgentGroup(id){
   var groupId=(document.getElementById('ag-group')||{}).value||'';
   try{
-    var r=await fetch('/api/agents/'+id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({group_id:groupId})});
+    var ep=epList.find(function(e){return e.agent_id===id;})||{agent_id:id};
+    var r=await fetch('/api/agents/'+encodeURIComponent(ep.agent_id),{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({group_id:groupId})});
     if(!r.ok){var d=await r.json().catch(function(){return{};});showToast(d.error||'Error','error');return;}
-    closeModal();await renderAgents();
+    closeModal();
+    showToast('Group updated','success');
+    closeDrawer();loadPage();
   }catch(e){showToast('Error: '+e.message,'error');}
 }
 
+// Removes a managed agent's enrollment. Per backend behavior this also
+// deletes its event history as one operation, so the confirmation says so.
 async function removeAgent(id,hostname){
-  if(!confirm('Remove agent "'+hostname+'"? Its API key will be revoked.'))return;
+  if(!confirm('Remove agent "'+hostname+'"? Its API key will be revoked and its event history will be deleted.'))return;
   try{
-    var r=await fetch('/api/agents/'+id,{method:'DELETE'});
+    var ep=epList.find(function(e){return e.agent_id===id;})||{agent_id:id};
+    var r=await fetch('/api/agents/'+encodeURIComponent(ep.agent_id),{method:'DELETE'});
     if(!r.ok){var d=await r.json().catch(function(){return{};});showToast(d.error||'Error','error');return;}
     showToast('Agent removed','success');
-    loadPage();
+    closeDrawer();loadPage();
   }catch(e){showToast('Error: '+e.message,'error');}
 }
 
@@ -1446,20 +1643,26 @@ async function renameAgent(id,current){
   var label=prompt('Device name (who owns this machine?). Leave empty to clear:',current||'');
   if(label===null)return; // cancelled
   try{
-    var r=await fetch('/api/agents/'+id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({label:label})});
+    var ep=epList.find(function(e){return e.agent_id===id;})||{agent_id:id};
+    var r=await fetch('/api/agents/'+encodeURIComponent(ep.agent_id),{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({label:label})});
     if(!r.ok){var d=await r.json().catch(function(){return{};});showToast(d.error||'Error','error');return;}
     showToast('Device name updated','success');
-    await renderAgents();
+    closeDrawer();loadPage();
   }catch(e){showToast('Error: '+e.message,'error');}
 }
 
-async function deleteAgentEvents(id){
-  if(!confirm('Delete all events for this agent? This cannot be undone.'))return;
+// Deletes observed telemetry for an endpoint that has no active enrollment
+// record. Uses endpoint_id, never agent_id — the server rejects the route
+// for an active managed endpoint.
+async function deleteEndpointEvents(endpointId){
+  var ep=epList.find(function(e){return e.endpoint_id===endpointId;});
+  var label=(ep&&(ep.hostname||ep.label))||endpointId;
+  if(!confirm('Delete all telemetry for "'+label+'"? This cannot be undone.'))return;
   try{
-    var r=await fetch('/api/agents/'+encodeURIComponent(id),{method:'DELETE'});
+    var r=await fetch('/api/endpoints/'+encodeURIComponent(endpointId)+'/events',{method:'DELETE'});
     if(!r.ok){var d=await r.json().catch(function(){return{};});showToast(d.error||'Error','error');return;}
-    showToast('Events deleted','success');
-    loadPage();
+    showToast('Telemetry deleted','success');
+    closeDrawer();loadPage();
   }catch(e){showToast('Error: '+e.message,'error');}
 }
 
@@ -1477,28 +1680,28 @@ function scanStateBadge(a){
 async function triggerScan(id,hostname){
   if(!confirm('Scan all installed packages on "'+hostname+'" for malware? This runs on the agent\'s next check-in (within ~15 min).'))return;
   try{
-    var r=await fetch('/api/agents/'+id+'/scan',{method:'POST'});
+    var ep=epList.find(function(e){return e.agent_id===id;})||{agent_id:id};
+    var r=await fetch('/api/agents/'+encodeURIComponent(ep.agent_id)+'/scan',{method:'POST'});
     if(!r.ok){var d=await r.json().catch(function(){return{};});showToast(d.error||'Error','error');return;}
     showToast('Scan requested','success');
-    await renderAgents();
+    closeDrawer();loadPage();
   }catch(e){showToast('Error: '+e.message,'error');}
 }
 
+// Scan All operates only on managed endpoints already loaded in epList.
+// Never scans observed rows (no agent_id).
 async function triggerScanAll(){
-  var agents=[];
-  try{agents=(await api('/api/agents')).filter(function(a){return a&&!a.removed;});}
-  catch(e){showToast('Error: '+e.message,'error');return;}
+  var agents=epList.filter(function(ep){return ep.agent_id;});
+  if(!agents.length){showToast('No managed endpoints to scan','error');return;}
+  if(!confirm('Scan all '+agents.length+' managed endpoint'+(agents.length>1?'s':'')+' for malware? Each runs on its next check-in (within ~15 min).'))return;
 
-  if(!agents.length){showToast('No agents to scan','error');return;}
-  if(!confirm('Scan all '+agents.length+' agent'+(agents.length>1?'s':'')+' for malware? Each runs on its next check-in (within ~15 min).'))return;
-
-  var results=await Promise.allSettled(agents.map(function(a){
-    return fetch('/api/agents/'+a.id+'/scan',{method:'POST'});
+  var results=await Promise.allSettled(agents.map(function(ep){
+    return fetch('/api/agents/'+encodeURIComponent(ep.agent_id)+'/scan',{method:'POST'});
   }));
   var ok=results.filter(function(r){return r.status==='fulfilled'&&r.value.ok;}).length;
   var fail=results.length-ok;
-  showToast('Requested scan for '+ok+'/'+results.length+' agent'+(results.length>1?'s':'')+(fail?' ('+fail+' failed)':''), fail?'error':'success');
-  await renderAgents();
+  showToast('Requested scan for '+ok+'/'+results.length+' endpoint'+(results.length>1?'s':'')+(fail?' ('+fail+' failed)':''), fail?'error':'success');
+  loadPage();
 }
 
 var ecoFindings=[];
@@ -1549,7 +1752,7 @@ function renderEcosystemTable(summary,findings){
     (ecoVerdictFilter!=='clean'?'<td class="mono" style="font-size:11px">'+h(f.remove_hint||'')+
       (f.remove_hint?' <button class="btn btn-sm btn-ghost" onclick="copyRemoveHint('+idx+')">copy</button>':'')+'</td>':'')+
     '</tr>';
-  }).join(''):'<tr><td colspan="'+(ecoVerdictFilter!=='clean'?'9':'8')+'" class="empty">'+(ecoVerdictFilter==='malware'?'No malware findings. Trigger a scan from the Agents tab.':(ecoVerdictFilter==='clean'?'No clean packages recorded yet.':'No scan data yet. Trigger a scan from the Agents tab.'))+'</td></tr>')+
+  }).join(''):'<tr><td colspan="'+(ecoVerdictFilter!=='clean'?'9':'8')+'" class="empty">'+(ecoVerdictFilter==='malware'?'No malware findings. Trigger a scan from the Endpoints tab.':(ecoVerdictFilter==='clean'?'No clean packages recorded yet.':'No scan data yet. Trigger a scan from the Endpoints tab.'))+'</td></tr>')+
   '</tbody></table></div>';
 }
 function setEcoFilter(v){

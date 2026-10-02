@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -204,6 +205,329 @@ func newEnrollHandlerWithAdmin(t *testing.T) (http.Handler, *GroupStore, *Enroll
 		Audit:      NewAuditLog(dataDir),
 	})
 	return h, groups, enrollment, sid
+}
+
+func newEndpointsHandlerWithRoles(t *testing.T) (http.Handler, *EnrollmentStore, map[string]string, string) {
+	t.Helper()
+	dataDir := t.TempDir()
+	enrollment, err := NewEnrollmentStore(dataDir)
+	require.NoError(t, err)
+	users, err := NewUserStore(dataDir, "seed-admin", "seed-password-123")
+	require.NoError(t, err)
+	sessions := NewSessionStore()
+	sids := make(map[string]string)
+	for _, role := range []string{RoleAdmin, RoleEditor, RoleViewer} {
+		sid, createErr := sessions.Create(DashUser{ID: "user-" + role, Username: role, Role: role})
+		require.NoError(t, createErr)
+		sids[role] = sid
+	}
+	h := Handler(dataDir, HandlerDeps{Enrollment: enrollment, Users: users, Sessions: sessions, Audit: NewAuditLog(dataDir)})
+	return h, enrollment, sids, dataDir
+}
+
+func newEndpointDeleteHandler(t *testing.T) (http.Handler, *EnrollmentStore, map[string]string, string) {
+	t.Helper()
+	dataDir := t.TempDir()
+	enrollment, err := NewEnrollmentStore(dataDir)
+	require.NoError(t, err)
+	users, err := NewUserStore(dataDir, "seed-admin", "seed-password-123")
+	require.NoError(t, err)
+	sessions := NewSessionStore()
+	sids := make(map[string]string)
+	for _, role := range []string{RoleAdmin, RoleEditor} {
+		sid, createErr := sessions.Create(DashUser{ID: "user-" + role, Username: role, Role: role})
+		require.NoError(t, createErr)
+		sids[role] = sid
+	}
+	h := Handler(dataDir, HandlerDeps{
+		Enrollment: enrollment,
+		Users:      users,
+		Sessions:   sessions,
+		Audit:      NewAuditLog(dataDir),
+	})
+	return h, enrollment, sids, dataDir
+}
+
+func readEndpointEvents(t *testing.T, h http.Handler, sid, endpointID string) []Event {
+	t.Helper()
+	rec := doWithSession(t, h, http.MethodGet, "/api/endpoints/"+endpointID+"/events", sid, "")
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	var events []Event
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &events))
+	return events
+}
+
+func TestHandler_DeleteObservedEndpointTelemetry_AdminSucceeds(t *testing.T) {
+	h, _, sids, dataDir := newEndpointDeleteHandler(t)
+	now := time.Now().UTC()
+	writeEventsFile(t, dataDir, now.Format("20060102"), []Event{{EventID: "observed", EndpointID: "ci-runner", ReceivedAt: now}})
+
+	rec := doWithSession(t, h, http.MethodDelete, "/api/endpoints/ci-runner/events", sids[RoleAdmin], "")
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	assert.Empty(t, readEndpointEvents(t, h, sids[RoleAdmin], "ci-runner"))
+}
+
+func TestHandler_DeleteEndpointTelemetry_ActiveManagedRejected(t *testing.T) {
+	h, enrollment, sids, dataDir := newEndpointDeleteHandler(t)
+	require.NoError(t, enrollment.RegisterAgent(Agent{ID: "agent-1", Hostname: "managed-host"}))
+	now := time.Now().UTC()
+	writeEventsFile(t, dataDir, now.Format("20060102"), []Event{{EventID: "managed", EndpointID: "agent-1", ReceivedAt: now}})
+
+	rec := doWithSession(t, h, http.MethodDelete, "/api/endpoints/agent-1/events", sids[RoleAdmin], "")
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Len(t, readEndpointEvents(t, h, sids[RoleAdmin], "agent-1"), 1)
+}
+
+func TestHandler_DeleteEndpointTelemetry_HostnameMatchedManagedRejectedCaseInsensitive(t *testing.T) {
+	h, enrollment, sids, dataDir := newEndpointDeleteHandler(t)
+	require.NoError(t, enrollment.RegisterAgent(Agent{ID: "agent-1", Hostname: "Managed-Host"}))
+	now := time.Now().UTC()
+	writeEventsFile(t, dataDir, now.Format("20060102"), []Event{{EventID: "managed", EndpointID: "managed-host", ReceivedAt: now}})
+
+	rec := doWithSession(t, h, http.MethodDelete, "/api/endpoints/managed-host/events", sids[RoleAdmin], "")
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Len(t, readEndpointEvents(t, h, sids[RoleAdmin], "managed-host"), 1)
+}
+
+func TestHandler_DeleteEndpointTelemetry_UnknownObservedReturns404(t *testing.T) {
+	h, _, sids, _ := newEndpointDeleteHandler(t)
+	rec := doWithSession(t, h, http.MethodDelete, "/api/endpoints/missing/events", sids[RoleAdmin], "")
+	assert.Equal(t, http.StatusNotFound, rec.Code)
+}
+
+func TestHandler_DeleteObservedEndpointTelemetry_EditorForbidden(t *testing.T) {
+	h, _, sids, dataDir := newEndpointDeleteHandler(t)
+	now := time.Now().UTC()
+	writeEventsFile(t, dataDir, now.Format("20060102"), []Event{{EventID: "observed", EndpointID: "ci-runner", ReceivedAt: now}})
+
+	rec := doWithSession(t, h, http.MethodDelete, "/api/endpoints/ci-runner/events", sids[RoleEditor], "")
+	assert.Equal(t, http.StatusForbidden, rec.Code)
+	assert.Len(t, readEndpointEvents(t, h, sids[RoleAdmin], "ci-runner"), 1)
+}
+
+func TestHandler_DeleteUnknownAgentDoesNotDeleteObservedTelemetry(t *testing.T) {
+	h, _, sids, dataDir := newEndpointDeleteHandler(t)
+	now := time.Now().UTC()
+	writeEventsFile(t, dataDir, now.Format("20060102"), []Event{{EventID: "observed", EndpointID: "ci-runner", ReceivedAt: now}})
+
+	rec := doWithSession(t, h, http.MethodDelete, "/api/agents/ci-runner", sids[RoleAdmin], "")
+	assert.Equal(t, http.StatusNotFound, rec.Code)
+	assert.Len(t, readEndpointEvents(t, h, sids[RoleAdmin], "ci-runner"), 1)
+}
+
+func TestHandler_DeleteManagedAgentRemovesEnrollmentAndTelemetry(t *testing.T) {
+	h, enrollment, sids, dataDir := newEndpointDeleteHandler(t)
+	require.NoError(t, enrollment.RegisterAgent(Agent{ID: "agent-1", Hostname: "managed-host"}))
+	now := time.Now().UTC()
+	writeEventsFile(t, dataDir, now.Format("20060102"), []Event{{EventID: "managed", EndpointID: "agent-1", ReceivedAt: now}})
+
+	rec := doWithSession(t, h, http.MethodDelete, "/api/agents/agent-1", sids[RoleAdmin], "")
+	require.Equal(t, http.StatusNoContent, rec.Code, rec.Body.String())
+	agent, ok := enrollment.GetAgentByID("agent-1")
+	require.True(t, ok)
+	assert.True(t, agent.Removed)
+	assert.Empty(t, readEndpointEvents(t, h, sids[RoleAdmin], "agent-1"))
+}
+
+func TestHandler_Endpoints_AllDashboardRolesCanRead(t *testing.T) {
+	h, enrollment, sids, _ := newEndpointsHandlerWithRoles(t)
+	require.NoError(t, enrollment.RegisterAgent(Agent{ID: "agent-1", Hostname: "build-host", EnrolledAt: time.Now().UTC()}))
+
+	for _, role := range []string{RoleAdmin, RoleEditor, RoleViewer} {
+		t.Run(role, func(t *testing.T) {
+			rec := doWithSession(t, h, http.MethodGet, "/api/endpoints", sids[role], "")
+			require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+			var endpoints []EndpointInfo
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &endpoints))
+			require.Len(t, endpoints, 1)
+			assert.Equal(t, "agent-1", endpoints[0].AgentID)
+			assert.Equal(t, "agent-1", endpoints[0].EndpointID)
+		})
+	}
+}
+
+func TestHandler_Endpoints_UnknownDashboardRoleIsForbidden(t *testing.T) {
+	h, _, _, dataDir := newEndpointsHandlerWithRoles(t)
+	users, err := NewUserStore(dataDir, "another-admin", "seed-password-123")
+	require.NoError(t, err)
+	sessions := NewSessionStore()
+	sid, err := sessions.Create(DashUser{ID: "user-unknown", Username: "unknown", Role: "unknown"})
+	require.NoError(t, err)
+	h = Handler(dataDir, HandlerDeps{Users: users, Sessions: sessions})
+
+	rec := doWithSession(t, h, http.MethodGet, "/api/endpoints", sid, "")
+	assert.Equal(t, http.StatusForbidden, rec.Code)
+}
+
+func TestHandler_Endpoints_RequiresGET(t *testing.T) {
+	h, _, sids, _ := newEndpointsHandlerWithRoles(t)
+	rec := doWithSession(t, h, http.MethodPost, "/api/endpoints", sids[RoleAdmin], "")
+	assert.Equal(t, http.StatusMethodNotAllowed, rec.Code)
+}
+
+func TestHandler_Endpoints_GroupFilterExcludesOtherZeroEventAgents(t *testing.T) {
+	h, enrollment, sids, _ := newEndpointsHandlerWithRoles(t)
+	now := time.Now().UTC()
+	require.NoError(t, enrollment.RegisterAgent(Agent{ID: "agent-g1", Hostname: "host-g1", GroupID: "g1", EnrolledAt: now}))
+	require.NoError(t, enrollment.RegisterAgent(Agent{ID: "agent-g2", Hostname: "host-g2", GroupID: "g2", EnrolledAt: now}))
+
+	rec := doWithSession(t, h, http.MethodGet, "/api/endpoints?group_id=g1", sids[RoleAdmin], "")
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	var endpoints []EndpointInfo
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &endpoints))
+	require.Len(t, endpoints, 1)
+	assert.Equal(t, "agent-g1", endpoints[0].AgentID)
+}
+
+func TestHandler_Endpoints_PeriodLimitsActivityButKeepsInventoryAndLifecycle(t *testing.T) {
+	h, enrollment, sids, dataDir := newEndpointsHandlerWithRoles(t)
+	now := time.Now().UTC()
+	heartbeat := now.Add(-time.Hour)
+	require.NoError(t, enrollment.RegisterAgent(Agent{ID: "agent-1", Hostname: "managed-host", GroupID: "g1", EnrolledAt: now.AddDate(0, 0, -30), LastSeen: &heartbeat}))
+	old := now.AddDate(0, 0, -10)
+	writeEventsFile(t, dataDir, old.Format("20060102"), []Event{
+		{EventID: "managed-old", EndpointID: "agent-1", GroupID: "g1", InvocationID: "run-managed", EventType: "PACKAGE_DECISION", PackageName: "old-package", Action: "BLOCKED", ReceivedAt: old},
+		{EventID: "observed-old", EndpointID: "ci-runner", GroupID: "g1", InvocationID: "run-observed", EventType: "PACKAGE_DECISION", PackageName: "old-package", Action: "BLOCKED", ReceivedAt: old.Add(time.Minute)},
+	})
+
+	rec := doWithSession(t, h, http.MethodGet, "/api/endpoints?days=7&group_id=g1", sids[RoleAdmin], "")
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	var endpoints []EndpointInfo
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &endpoints))
+	require.Len(t, endpoints, 2)
+	byID := make(map[string]EndpointInfo)
+	for _, endpoint := range endpoints {
+		byID[endpoint.EndpointID] = endpoint
+	}
+	managed := byID["agent-1"]
+	assert.Equal(t, heartbeat, managed.LastSeen)
+	assert.Zero(t, managed.Sessions)
+	assert.Zero(t, managed.TotalPackages)
+	assert.Zero(t, managed.BlockedPackages)
+	observed, ok := byID["ci-runner"]
+	require.True(t, ok, "observed endpoint outside range must remain in inventory")
+	assert.Equal(t, old.Add(time.Minute), observed.LastSeen)
+	assert.Zero(t, observed.Sessions)
+	assert.Zero(t, observed.TotalPackages)
+	assert.Zero(t, observed.BlockedPackages)
+}
+
+// TestHandler_Endpoints_PeriodActivityMatchesDirectMergeCounters guards the
+// /api/endpoints handler's single-tally optimization (tallyEndpointActivity)
+// against the previous two-full-MergeAgentEndpoints-calls behavior: the
+// sessions/total_packages/blocked_packages the handler overlays onto the
+// all-time inventory must be byte-for-byte identical to what a second
+// MergeAgentEndpoints call over the period-scoped events would have produced,
+// for a representative case with multiple endpoints, multiple invocations
+// per endpoint, and a mix of in-range/out-of-range events.
+func TestHandler_Endpoints_PeriodActivityMatchesDirectMergeCounters(t *testing.T) {
+	h, enrollment, sids, dataDir := newEndpointsHandlerWithRoles(t)
+	now := time.Now().UTC()
+	heartbeat := now.Add(-time.Hour)
+	require.NoError(t, enrollment.RegisterAgent(Agent{ID: "agent-1", Hostname: "managed-host", GroupID: "g1", EnrolledAt: now.AddDate(0, 0, -30), LastSeen: &heartbeat}))
+
+	old := now.AddDate(0, 0, -10)
+	inRange1 := now.Add(-2 * time.Hour)
+	inRange2 := now.Add(-time.Hour)
+	periodEvents := []Event{
+		// agent-1: two sessions in range, one blocked + one allowed package decision
+		{EventID: "e1", EndpointID: "agent-1", GroupID: "g1", InvocationID: "run-1", EventType: "PACKAGE_DECISION", Action: "BLOCKED", ReceivedAt: inRange1},
+		{EventID: "e2", EndpointID: "agent-1", GroupID: "g1", InvocationID: "run-2", EventType: "PACKAGE_DECISION", Action: "ALLOWED", ReceivedAt: inRange2},
+		// ci-runner (observed): three package decisions across two invocations
+		{EventID: "e3", EndpointID: "ci-runner", GroupID: "g1", InvocationID: "run-a", EventType: "PACKAGE_DECISION", Action: "BLOCKED", ReceivedAt: inRange1},
+		{EventID: "e4", EndpointID: "ci-runner", GroupID: "g1", InvocationID: "run-a", EventType: "PACKAGE_DECISION", Action: "BLOCKED", ReceivedAt: inRange1.Add(time.Minute)},
+		{EventID: "e5", EndpointID: "ci-runner", GroupID: "g1", InvocationID: "run-b", EventType: "PACKAGE_DECISION", Action: "ALLOWED", ReceivedAt: inRange2},
+	}
+	writeEventsFile(t, dataDir, now.Format("20060102"), periodEvents)
+	outOfRange := []Event{
+		{EventID: "old-1", EndpointID: "agent-1", GroupID: "g1", InvocationID: "run-old", EventType: "PACKAGE_DECISION", Action: "BLOCKED", ReceivedAt: old},
+		{EventID: "old-2", EndpointID: "ci-runner", GroupID: "g1", InvocationID: "run-old-2", EventType: "PACKAGE_DECISION", Action: "BLOCKED", ReceivedAt: old},
+	}
+	writeEventsFile(t, dataDir, old.Format("20060102"), outOfRange)
+
+	rec := doWithSession(t, h, http.MethodGet, "/api/endpoints?days=7&group_id=g1", sids[RoleAdmin], "")
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	var endpoints []EndpointInfo
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &endpoints))
+	byID := make(map[string]EndpointInfo)
+	for _, endpoint := range endpoints {
+		byID[endpoint.EndpointID] = endpoint
+	}
+
+	// Compute expected counters the old way: a second full MergeAgentEndpoints
+	// call over just the period-scoped (in-range) events.
+	var agents []Agent
+	for _, a := range enrollment.ListAllAgents() {
+		if a.GroupID == "g1" {
+			agents = append(agents, a)
+		}
+	}
+	expected := MergeAgentEndpoints(agents, periodEvents)
+	expectedByID := make(map[string]EndpointInfo)
+	for _, e := range expected {
+		expectedByID[e.EndpointID] = e
+	}
+
+	require.Contains(t, byID, "agent-1")
+	require.Contains(t, byID, "ci-runner")
+	require.Contains(t, expectedByID, "agent-1")
+	require.Contains(t, expectedByID, "ci-runner")
+
+	for _, epID := range []string{"agent-1", "ci-runner"} {
+		got := byID[epID]
+		want := expectedByID[epID]
+		assert.Equal(t, want.Sessions, got.Sessions, "endpoint %s sessions", epID)
+		assert.Equal(t, want.TotalPackages, got.TotalPackages, "endpoint %s total_packages", epID)
+		assert.Equal(t, want.BlockedPackages, got.BlockedPackages, "endpoint %s blocked_packages", epID)
+	}
+	// Sanity: the counts are non-trivial (not just both-zero, which would make
+	// the comparison above vacuous).
+	assert.Equal(t, 2, byID["agent-1"].Sessions)
+	assert.Equal(t, 2, byID["agent-1"].TotalPackages)
+	assert.Equal(t, 1, byID["agent-1"].BlockedPackages)
+	assert.Equal(t, 2, byID["ci-runner"].Sessions)
+	assert.Equal(t, 3, byID["ci-runner"].TotalPackages)
+	assert.Equal(t, 2, byID["ci-runner"].BlockedPackages)
+}
+
+func TestHandler_EndpointEvents_UsesRequestedRange(t *testing.T) {
+	h, _, sids, dataDir := newEndpointsHandlerWithRoles(t)
+	now := time.Now().UTC()
+	old := now.AddDate(0, 0, -10)
+	writeEventsFile(t, dataDir, old.Format("20060102"), []Event{{EventID: "old", EndpointID: "ep-1", ReceivedAt: old}})
+	writeEventsFile(t, dataDir, now.Format("20060102"), []Event{{EventID: "recent", EndpointID: "ep-1", ReceivedAt: now}})
+
+	rec := doWithSession(t, h, http.MethodGet, "/api/endpoints/ep-1/events?days=7", sids[RoleViewer], "")
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	var events []Event
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &events))
+	require.Len(t, events, 1)
+	assert.Equal(t, "recent", events[0].EventID)
+}
+
+func TestHandler_EndpointEvents_GroupFilterPreventsCrossGroupLeak(t *testing.T) {
+	h, _, sids, dataDir := newEndpointsHandlerWithRoles(t)
+	now := time.Now().UTC()
+	writeEventsFile(t, dataDir, now.Format("20060102"), []Event{
+		{EventID: "g1-event", EndpointID: "ep-1", GroupID: "g1", ReceivedAt: now},
+		{EventID: "g2-event", EndpointID: "ep-1", GroupID: "g2", ReceivedAt: now.Add(time.Minute)},
+	})
+
+	rec := doWithSession(t, h, http.MethodGet, "/api/endpoints/ep-1/events?group_id=g1", sids[RoleViewer], "")
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	var events []Event
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &events))
+	require.Len(t, events, 1)
+	assert.Equal(t, "g1-event", events[0].EventID)
+	assert.Equal(t, "g1", events[0].GroupID)
+}
+
+func TestHandler_EndpointReads_InvalidCustomRangeReturns400(t *testing.T) {
+	h, _, sids, _ := newEndpointsHandlerWithRoles(t)
+	for _, path := range []string{"/api/endpoints?from=not-a-date", "/api/endpoints/ep-1/events?to=not-a-date"} {
+		rec := doWithSession(t, h, http.MethodGet, path, sids[RoleAdmin], "")
+		assert.Equal(t, http.StatusBadRequest, rec.Code, path+": "+rec.Body.String())
+	}
 }
 
 func TestHandler_TriggerScan_AdminCanRequestScan(t *testing.T) {
