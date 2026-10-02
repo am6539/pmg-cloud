@@ -161,3 +161,118 @@ func TestAggregate_DeduplicatesEndpoints(t *testing.T) {
 	assert.Equal(t, 1, stats.Endpoints)
 }
 
+func TestMergeAgentEndpoints_HostnameMatchPreservesSeparateIDs(t *testing.T) {
+	now := time.Now().UTC()
+	agents := []Agent{{ID: "agent-1", Hostname: "build-host", ScanState: "completed", LastScanAt: &now}}
+	events := []Event{{EndpointID: "build-host", MachineID: "machine-1", InvocationID: "run-1", ReceivedAt: now}}
+
+	got := MergeAgentEndpoints(agents, events)
+	require.Len(t, got, 1)
+	assert.Equal(t, "agent-1", got[0].AgentID)
+	assert.Equal(t, "build-host", got[0].EndpointID)
+	assert.Equal(t, "machine-1", got[0].MachineID)
+	assert.True(t, got[0].Managed)
+	assert.Equal(t, "completed", got[0].ScanState)
+	assert.Equal(t, &now, got[0].LastScanAt)
+}
+
+func TestMergeAgentEndpoints_HostnameMatchIsCaseInsensitiveWithoutDuplicate(t *testing.T) {
+	now := time.Now().UTC()
+	agents := []Agent{{ID: "agent-1", Hostname: "build-host"}}
+	events := []Event{{EndpointID: "BUILD-HOST", ReceivedAt: now}}
+
+	got := MergeAgentEndpoints(agents, events)
+
+	require.Len(t, got, 1)
+	assert.Equal(t, "agent-1", got[0].AgentID)
+	assert.Equal(t, "BUILD-HOST", got[0].EndpointID)
+}
+
+func TestMergeAgentEndpoints_ObservedEndpointIsNotManaged(t *testing.T) {
+	now := time.Now().UTC()
+	got := MergeAgentEndpoints(nil, []Event{{EndpointID: "ci-runner", MachineID: "machine-ci", ReceivedAt: now}})
+	require.Len(t, got, 1)
+	assert.Empty(t, got[0].AgentID)
+	assert.Equal(t, "ci-runner", got[0].EndpointID)
+	assert.False(t, got[0].Managed)
+}
+
+func TestMergeAgentEndpoints_LatestNonEmptyMachineIDWins(t *testing.T) {
+	now := time.Now().UTC()
+	got := MergeAgentEndpoints(nil, []Event{
+		{EndpointID: "ci-runner", MachineID: "machine-new", ReceivedAt: now},
+		{EndpointID: "ci-runner", MachineID: "machine-old", ReceivedAt: now.Add(-time.Hour)},
+		{EndpointID: "ci-runner", ReceivedAt: now.Add(time.Hour)},
+	})
+
+	require.Len(t, got, 1)
+	assert.Equal(t, "machine-new", got[0].MachineID)
+}
+
+func TestMergeAgentEndpoints_ObservedEndpointPopulatesHostnameOSArchRemoteIP(t *testing.T) {
+	now := time.Now().UTC()
+	got := MergeAgentEndpoints(nil, []Event{{
+		EndpointID: "ci-runner",
+		Hostname:   "ci-runner-host",
+		OS:         "linux",
+		Arch:       "amd64",
+		RemoteIP:   "203.0.113.5",
+		ReceivedAt: now,
+	}})
+
+	require.Len(t, got, 1)
+	assert.Equal(t, "ci-runner-host", got[0].Hostname)
+	assert.Equal(t, "linux", got[0].OS)
+	assert.Equal(t, "amd64", got[0].Arch)
+	assert.Equal(t, "203.0.113.5", got[0].RemoteIP)
+}
+
+func TestMergeAgentEndpoints_LatestNonEmptyHostnameOSArchRemoteIPWins(t *testing.T) {
+	now := time.Now().UTC()
+	got := MergeAgentEndpoints(nil, []Event{
+		{
+			EndpointID: "ci-runner",
+			Hostname:   "old-host", OS: "linux", Arch: "amd64", RemoteIP: "10.0.0.1",
+			ReceivedAt: now.Add(-time.Hour),
+		},
+		{
+			EndpointID: "ci-runner",
+			Hostname:   "new-host", OS: "darwin", Arch: "arm64", RemoteIP: "10.0.0.2",
+			ReceivedAt: now,
+		},
+		{
+			// Latest event overall, but omits these fields — must not blank out
+			// the previously-captured non-empty values.
+			EndpointID: "ci-runner",
+			ReceivedAt: now.Add(time.Hour),
+		},
+	})
+
+	require.Len(t, got, 1)
+	assert.Equal(t, "new-host", got[0].Hostname)
+	assert.Equal(t, "darwin", got[0].OS)
+	assert.Equal(t, "arm64", got[0].Arch)
+	assert.Equal(t, "10.0.0.2", got[0].RemoteIP)
+}
+
+func TestMergeAgentEndpoints_ZeroEventAgentIsManagedWithScanState(t *testing.T) {
+	now := time.Now().UTC()
+	summary := &EcosystemScanSummary{FlaggedCount: 2}
+	agent := Agent{
+		ID:               "agent-1",
+		Hostname:         "build-host",
+		ScanState:        "completed",
+		ScanDispatchedAt: &now,
+		LastScanAt:       &now,
+		LastScanSummary:  summary,
+	}
+
+	got := MergeAgentEndpoints([]Agent{agent}, nil)
+
+	require.Len(t, got, 1)
+	assert.True(t, got[0].Managed)
+	assert.Equal(t, "completed", got[0].ScanState)
+	assert.Equal(t, &now, got[0].ScanDispatchedAt)
+	assert.Equal(t, &now, got[0].LastScanAt)
+	assert.Equal(t, summary, got[0].LastScanSummary)
+}

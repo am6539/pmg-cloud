@@ -304,31 +304,40 @@ func ComputePackageStats(events []Event) []PackageStat {
 
 // EndpointInfo is a merged view of an enrolled agent + event-derived stats.
 type EndpointInfo struct {
-	AgentID         string     `json:"agent_id,omitempty"` // from enrollment; used for remove operation
-	EndpointID      string     `json:"endpoint_id"`
-	Hostname        string     `json:"hostname"`
-	Label           string     `json:"label,omitempty"`
-	OS              string     `json:"os"`
-	Arch            string     `json:"arch"`
-	ToolVersion     string     `json:"tool_version,omitempty"`
-	LocalIP         string     `json:"local_ip,omitempty"`
-	RemoteIP        string     `json:"remote_ip,omitempty"`
-	GroupID         string     `json:"group_id,omitempty"`
-	EnrolledAt      time.Time  `json:"enrolled_at"`
-	FirstSeen       time.Time  `json:"first_seen"`
-	LastSeen        time.Time  `json:"last_seen"`
-	Sessions        int        `json:"sessions"`
-	TotalPackages   int        `json:"total_packages"`
-	BlockedPackages int        `json:"blocked_packages"`
-	Removed         bool       `json:"removed"`
+	AgentID          string                `json:"agent_id,omitempty"` // from enrollment; used for remove operation
+	EndpointID       string                `json:"endpoint_id"`
+	Managed          bool                  `json:"managed"`
+	MachineID        string                `json:"machine_id,omitempty"`
+	Hostname         string                `json:"hostname"`
+	Label            string                `json:"label,omitempty"`
+	OS               string                `json:"os"`
+	Arch             string                `json:"arch"`
+	ToolVersion      string                `json:"tool_version,omitempty"`
+	LocalIP          string                `json:"local_ip,omitempty"`
+	RemoteIP         string                `json:"remote_ip,omitempty"`
+	GroupID          string                `json:"group_id,omitempty"`
+	EnrolledAt       time.Time             `json:"enrolled_at"`
+	FirstSeen        time.Time             `json:"first_seen"`
+	LastSeen         time.Time             `json:"last_seen"`
+	Sessions         int                   `json:"sessions"`
+	TotalPackages    int                   `json:"total_packages"`
+	BlockedPackages  int                   `json:"blocked_packages"`
+	Removed          bool                  `json:"removed"`
+	ScanState        string                `json:"scan_state,omitempty"`
+	ScanDispatchedAt *time.Time            `json:"scan_dispatched_at,omitempty"`
+	LastScanAt       *time.Time            `json:"last_scan_at,omitempty"`
+	LastScanSummary  *EcosystemScanSummary `json:"last_scan_summary,omitempty"`
 }
 
 // MergeAgentEndpoints combines enrolled agents with event-derived endpoint stats.
 func MergeAgentEndpoints(agents []Agent, events []Event) []EndpointInfo {
 	type epData struct {
-		firstSeen, lastSeen time.Time
-		invocations         map[string]struct{}
-		totalPkgs, blocked  int
+		firstSeen, lastSeen          time.Time
+		machineID                    string
+		machineIDSeenAt              time.Time
+		hostname, os, arch, remoteIP string
+		invocations                  map[string]struct{}
+		totalPkgs, blocked           int
 	}
 	m := make(map[string]*epData)
 	for _, ev := range events {
@@ -345,6 +354,22 @@ func MergeAgentEndpoints(agents []Agent, events []Event) []EndpointInfo {
 		}
 		if ev.ReceivedAt.After(ed.lastSeen) {
 			ed.lastSeen = ev.ReceivedAt
+			if ev.Hostname != "" {
+				ed.hostname = ev.Hostname
+			}
+			if ev.OS != "" {
+				ed.os = ev.OS
+			}
+			if ev.Arch != "" {
+				ed.arch = ev.Arch
+			}
+			if ev.RemoteIP != "" {
+				ed.remoteIP = ev.RemoteIP
+			}
+		}
+		if ev.MachineID != "" && (ed.machineIDSeenAt.IsZero() || ev.ReceivedAt.After(ed.machineIDSeenAt)) {
+			ed.machineID = ev.MachineID
+			ed.machineIDSeenAt = ev.ReceivedAt
 		}
 		if ev.InvocationID != "" {
 			ed.invocations[ev.InvocationID] = struct{}{}
@@ -357,8 +382,8 @@ func MergeAgentEndpoints(agents []Agent, events []Event) []EndpointInfo {
 		}
 	}
 
-	agentMap := make(map[string]Agent)   // keyed by agent ID
-	hostMap := make(map[string]Agent)    // keyed by hostname (lowercase)
+	agentMap := make(map[string]Agent) // keyed by agent ID
+	hostMap := make(map[string]Agent)  // keyed by hostname (lowercase)
 	for _, a := range agents {
 		if !a.Removed {
 			agentMap[a.ID] = a
@@ -369,6 +394,7 @@ func MergeAgentEndpoints(agents []Agent, events []Event) []EndpointInfo {
 	}
 
 	endpoints := make([]EndpointInfo, 0, len(m))
+	matchedAgentIDs := make(map[string]struct{})
 	for epID, ed := range m {
 		// Try match by agent ID first, then by hostname (orphan endpoints)
 		a, hasAgent := agentMap[epID]
@@ -381,6 +407,11 @@ func MergeAgentEndpoints(agents []Agent, events []Event) []EndpointInfo {
 		}
 		ei := EndpointInfo{
 			EndpointID:      epID,
+			MachineID:       ed.machineID,
+			Hostname:        ed.hostname,
+			OS:              ed.os,
+			Arch:            ed.arch,
+			RemoteIP:        ed.remoteIP,
 			FirstSeen:       ed.firstSeen,
 			LastSeen:        ed.lastSeen,
 			Sessions:        len(ed.invocations),
@@ -388,7 +419,9 @@ func MergeAgentEndpoints(agents []Agent, events []Event) []EndpointInfo {
 			BlockedPackages: ed.blocked,
 		}
 		if hasAgent {
+			matchedAgentIDs[a.ID] = struct{}{}
 			ei.AgentID = a.ID
+			ei.Managed = true
 			ei.Hostname = a.Hostname
 			ei.Label = a.Label
 			ei.OS = a.OS
@@ -399,6 +432,10 @@ func MergeAgentEndpoints(agents []Agent, events []Event) []EndpointInfo {
 			ei.GroupID = a.GroupID
 			ei.EnrolledAt = a.EnrolledAt
 			ei.Removed = a.Removed
+			ei.ScanState = a.ScanState
+			ei.ScanDispatchedAt = a.ScanDispatchedAt
+			ei.LastScanAt = a.LastScanAt
+			ei.LastScanSummary = a.LastScanSummary
 			if a.LastSeen != nil && a.LastSeen.After(ei.LastSeen) {
 				ei.LastSeen = *a.LastSeen
 			}
@@ -413,24 +450,28 @@ func MergeAgentEndpoints(agents []Agent, events []Event) []EndpointInfo {
 		if a.Removed {
 			continue
 		}
-		// Skip if already merged via UUID or hostname match
-		_, seenByID := m[a.ID]
-		_, seenByHostname := m[a.Hostname]
-		if !seenByID && !seenByHostname {
+		// Skip if already merged via UUID or case-insensitive hostname match.
+		_, matched := matchedAgentIDs[a.ID]
+		if !matched {
 			ei := EndpointInfo{
-				AgentID:     a.ID,
-				EndpointID:  a.ID,
-				Hostname:    a.Hostname,
-				Label:       a.Label,
-				OS:          a.OS,
-				Arch:        a.Arch,
-				ToolVersion: a.PMGVersion,
-				LocalIP:     a.LocalIP,
-				RemoteIP:    a.RemoteIP,
-				GroupID:     a.GroupID,
-				EnrolledAt:  a.EnrolledAt,
-				FirstSeen:   a.EnrolledAt,
-				Removed:     a.Removed,
+				AgentID:          a.ID,
+				EndpointID:       a.ID,
+				Managed:          true,
+				Hostname:         a.Hostname,
+				Label:            a.Label,
+				OS:               a.OS,
+				Arch:             a.Arch,
+				ToolVersion:      a.PMGVersion,
+				LocalIP:          a.LocalIP,
+				RemoteIP:         a.RemoteIP,
+				GroupID:          a.GroupID,
+				EnrolledAt:       a.EnrolledAt,
+				FirstSeen:        a.EnrolledAt,
+				Removed:          a.Removed,
+				ScanState:        a.ScanState,
+				ScanDispatchedAt: a.ScanDispatchedAt,
+				LastScanAt:       a.LastScanAt,
+				LastScanSummary:  a.LastScanSummary,
 			}
 			if a.LastSeen != nil {
 				ei.LastSeen = *a.LastSeen

@@ -438,22 +438,48 @@ func Handler(dataDir string, deps HandlerDeps) http.Handler {
 
 	// API: endpoints — exact match (list)
 	mux.HandleFunc("/api/endpoints", func(w http.ResponseWriter, r *http.Request) {
-		s, ok := sessionFromContext(r)
-		if ok && s.Role == RoleEditor {
+		if session, ok := sessionFromContext(r); ok && session.Role != RoleAdmin && session.Role != RoleEditor && session.Role != RoleViewer {
 			http.Error(w, `{"error":"forbidden"}`, http.StatusForbidden)
 			return
 		}
-		events, err := reader.LoadEvents(0) // all time
+		if r.Method != http.MethodGet {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		q := r.URL.Query()
+		groupID := q.Get("group_id")
+
+		allEvents, err := reader.LoadEvents(0)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		events = filterByGroup(events, r.URL.Query().Get("group_id"))
-		var list []EndpointInfo
-		if deps.Enrollment != nil {
-			list = MergeAgentEndpoints(deps.Enrollment.ListAllAgents(), events)
+		periodEvents, err := loadEventsForQuery(r, reader)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
 		}
-		if r.URL.Query().Get("format") == "csv" {
+
+		var agents []Agent
+		if deps.Enrollment != nil {
+			agents = filterAgentsByGroup(deps.Enrollment.ListAllAgents(), groupID)
+		}
+		list := MergeAgentEndpoints(agents, filterByGroup(allEvents, groupID))
+		// Overlay period-scoped activity (sessions/total_packages/blocked_packages)
+		// onto the all-time inventory. Deliberately avoids a second full
+		// MergeAgentEndpoints call (and the full []EndpointInfo allocation that
+		// implies) since these three counters are purely event-derived and
+		// unaffected by agent matching; tallyEndpointActivity mirrors the exact
+		// same per-endpoint counting rules MergeAgentEndpoints uses internally.
+		activityByEndpoint := tallyEndpointActivity(filterByGroup(periodEvents, groupID))
+		for i := range list {
+			activity := activityByEndpoint[list[i].EndpointID]
+			list[i].Sessions = activity.sessions
+			list[i].TotalPackages = activity.totalPkgs
+			list[i].BlockedPackages = activity.blocked
+		}
+
+		if q.Get("format") == "csv" {
 			writeEndpointsCSV(w, list)
 			return
 		}
@@ -474,40 +500,63 @@ func Handler(dataDir string, deps HandlerDeps) http.Handler {
 			return
 		}
 
-		// DELETE /api/endpoints/{id}/events - admin only, delete events for removed agent
+		// DELETE /api/endpoints/{id}/events - admin only, observed telemetry only
 		if r.Method == http.MethodDelete {
 			s, ok := sessionFromContext(r)
 			if !ok || s.Role != RoleAdmin {
 				http.Error(w, `{"error":"forbidden"}`, http.StatusForbidden)
 				return
 			}
-			// Check if agent exists and is removed
 			if deps.Enrollment != nil {
-				agent, found := deps.Enrollment.GetAgentByID(endpointID)
-				if !found {
-					http.Error(w, `{"error":"agent not found"}`, http.StatusNotFound)
-					return
-				}
-				if !agent.Removed {
+				if agent, found := deps.Enrollment.GetAgentByID(endpointID); found && !agent.Removed {
 					http.Error(w, `{"error":"cannot delete events for active agent"}`, http.StatusBadRequest)
 					return
 				}
+				for _, agent := range deps.Enrollment.ListAgents() {
+					if agent.Hostname != "" && strings.EqualFold(agent.Hostname, endpointID) {
+						http.Error(w, `{"error":"cannot delete events for active agent"}`, http.StatusBadRequest)
+						return
+					}
+				}
 			}
-			// Delete events for this endpoint
+			events, err := reader.LoadEvents(0)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+			found := false
+			for _, event := range events {
+				if event.EndpointID == endpointID {
+					found = true
+					break
+				}
+			}
+			if !found {
+				http.Error(w, `{"error":"endpoint telemetry not found"}`, http.StatusNotFound)
+				return
+			}
 			if err := reader.DeleteEventsByEndpointID(dataDir, endpointID); err != nil {
 				http.Error(w, err.Error(), http.StatusInternalServerError)
 				return
+			}
+			if deps.Audit != nil {
+				deps.Audit.Log("endpoint_telemetry_deleted", endpointID, "")
 			}
 			writeJSON(w, map[string]string{"status": "ok"})
 			return
 		}
 
 		// GET /api/endpoints/{id}/events
-		events, err := reader.LoadEvents(0)
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+		if r.Method != http.MethodGet {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
+		events, err := loadEventsForQuery(r, reader)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		events = filterByGroup(events, r.URL.Query().Get("group_id"))
 		filtered := make([]Event, 0)
 		for _, ev := range events {
 			if ev.EndpointID == endpointID {
@@ -1893,31 +1942,20 @@ func Handler(dataDir string, deps HandlerDeps) http.Handler {
 					return
 				}
 
-				// Check if agent exists in enrollment store
-				_, exists := enrollment.GetAgentByID(agentID)
-				if exists {
-					// Regular enrolled agent - remove from enrollment AND delete events
-					if err := enrollment.RemoveAgent(agentID); err != nil {
-						http.Error(w, err.Error(), http.StatusInternalServerError)
-						return
-					}
-					// Also delete all events for this agent
-					if err := reader.DeleteEventsByEndpointID(dataDir, agentID); err != nil {
-						http.Error(w, err.Error(), http.StatusInternalServerError)
-						return
-					}
-					if deps.Audit != nil {
-						deps.Audit.Log("agent_removed_with_events", agentID, "")
-					}
-				} else {
-					// Orphan endpoint (events only, no enrollment) - delete events directly
-					if err := reader.DeleteEventsByEndpointID(dataDir, agentID); err != nil {
-						http.Error(w, err.Error(), http.StatusInternalServerError)
-						return
-					}
-					if deps.Audit != nil {
-						deps.Audit.Log("orphan_endpoint_deleted", agentID, "")
-					}
+				if _, exists := enrollment.GetAgentByID(agentID); !exists {
+					http.NotFound(w, r)
+					return
+				}
+				if err := enrollment.RemoveAgent(agentID); err != nil {
+					http.Error(w, err.Error(), http.StatusInternalServerError)
+					return
+				}
+				if err := reader.DeleteEventsByEndpointID(dataDir, agentID); err != nil {
+					http.Error(w, err.Error(), http.StatusInternalServerError)
+					return
+				}
+				if deps.Audit != nil {
+					deps.Audit.Log("agent_removed_with_events", agentID, "")
 				}
 				w.WriteHeader(http.StatusNoContent)
 			default:
@@ -2415,6 +2453,31 @@ func parseDays(r *http.Request, def int) int {
 	return def
 }
 
+func loadEventsForQuery(r *http.Request, reader *Reader) ([]Event, error) {
+	q := r.URL.Query()
+	if q.Get("from") != "" || q.Get("to") != "" {
+		from, to, err := parseDateRange(q.Get("from"), q.Get("to"))
+		if err != nil {
+			return nil, err
+		}
+		return reader.LoadEventsRange(from, to)
+	}
+	return reader.LoadEvents(parseDays(r, 30))
+}
+
+func filterAgentsByGroup(agents []Agent, groupID string) []Agent {
+	if groupID == "" {
+		return agents
+	}
+	out := make([]Agent, 0, len(agents))
+	for _, agent := range agents {
+		if agent.GroupID == groupID {
+			out = append(out, agent)
+		}
+	}
+	return out
+}
+
 func filterByGroup(events []Event, groupID string) []Event {
 	if groupID == "" {
 		return events
@@ -2423,6 +2486,59 @@ func filterByGroup(events []Event, groupID string) []Event {
 	for _, ev := range events {
 		if ev.GroupID == groupID {
 			out = append(out, ev)
+		}
+	}
+	return out
+}
+
+// endpointActivity holds the three event-derived counters MergeAgentEndpoints
+// computes per endpoint: distinct invocation count (sessions) and
+// PACKAGE_DECISION/BLOCKED counts (totalPkgs/blocked).
+type endpointActivity struct {
+	sessions, totalPkgs, blocked int
+}
+
+// tallyEndpointActivity computes, for each endpoint_id, the same
+// sessions/total_packages/blocked_packages counters that
+// MergeAgentEndpoints(agents, events) would produce for that endpoint —
+// without building a full []EndpointInfo or requiring the agent list. This
+// mirrors MergeAgentEndpoints' event-accumulation loop exactly: sessions is
+// the count of distinct non-empty invocation_id values, totalPkgs counts
+// PACKAGE_DECISION events, and blocked counts those with action BLOCKED.
+// Endpoints absent from the returned map have zero activity for the period,
+// matching the zero-value EndpointInfo{} that a missing map lookup produced
+// in the old two-merge approach.
+func tallyEndpointActivity(events []Event) map[string]endpointActivity {
+	type acc struct {
+		invocations        map[string]struct{}
+		totalPkgs, blocked int
+	}
+	m := make(map[string]*acc)
+	for _, ev := range events {
+		if ev.EndpointID == "" {
+			continue
+		}
+		a, ok := m[ev.EndpointID]
+		if !ok {
+			a = &acc{invocations: make(map[string]struct{})}
+			m[ev.EndpointID] = a
+		}
+		if ev.InvocationID != "" {
+			a.invocations[ev.InvocationID] = struct{}{}
+		}
+		if strings.ToUpper(ev.EventType) == "PACKAGE_DECISION" {
+			a.totalPkgs++
+			if strings.ToUpper(ev.Action) == "BLOCKED" {
+				a.blocked++
+			}
+		}
+	}
+	out := make(map[string]endpointActivity, len(m))
+	for epID, a := range m {
+		out[epID] = endpointActivity{
+			sessions:  len(a.invocations),
+			totalPkgs: a.totalPkgs,
+			blocked:   a.blocked,
 		}
 	}
 	return out
