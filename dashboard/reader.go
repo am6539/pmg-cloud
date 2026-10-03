@@ -80,20 +80,47 @@ type Stats struct {
 	RecentEvents       []Event        `json:"recent_events"`
 }
 
-// Reader provides cached event reads and aggregation methods.
-type Reader struct {
-	dataDir   string
-	mu        sync.RWMutex
-	cached    []Event
-	cachedAt  time.Time
-	cacheTTL  time.Duration
-	cacheHash string // file mod hash
+// readerCacheMaxEntries bounds how many distinct file-set/date-range results
+// Reader holds at once, so memory stays bounded regardless of how many
+// different ranges (all-time, 30d, 7d, custom exports, ...) are requested
+// concurrently.
+const readerCacheMaxEntries = 8
+
+// readerCacheEntry holds one cached LoadEvents/LoadEventsRange result, keyed
+// by the requested file set's content hash (see fileHash).
+type readerCacheEntry struct {
+	events   []Event
+	cachedAt time.Time
 }
+
+// Reader provides cached event reads and aggregation methods.
+//
+// The cache holds up to readerCacheMaxEntries entries keyed by file-set hash
+// (one entry per distinct date range in use), rather than a single slot: two
+// different ranges requested close together (e.g. an all-time inventory load
+// and a 30-day activity load within the same handler, as /api/endpoints
+// does) would otherwise evict each other's cache entry on every single
+// request, forcing a full cold re-parse of every JSONL file each time.
+type Reader struct {
+	dataDir  string
+	mu       sync.RWMutex
+	cache    map[string]readerCacheEntry // keyed by fileHash(files)
+	cacheTTL time.Duration
+}
+
+// cacheTTL is set to match the dashboard's 30-second auto-refresh interval
+// (see startAR() in the embedded frontend): a left-open tab's periodic
+// refresh should mostly hit cache instead of re-parsing the full event
+// history from disk on every poll. A prior, shorter TTL contributed to high
+// CPU/memory use under auto-refresh once the on-disk event history grew
+// large.
+const readerCacheTTL = 30 * time.Second
 
 func NewReader(dataDir string) *Reader {
 	return &Reader{
 		dataDir:  dataDir,
-		cacheTTL: 10 * time.Second,
+		cacheTTL: readerCacheTTL,
+		cache:    make(map[string]readerCacheEntry),
 	}
 }
 
@@ -154,9 +181,9 @@ func (r *Reader) loadEventsRange(from, to time.Time) ([]Event, error) {
 	hash, _ := r.fileHash(files)
 
 	r.mu.RLock()
-	if time.Since(r.cachedAt) < r.cacheTTL && r.cacheHash == hash {
-		out := make([]Event, len(r.cached))
-		copy(out, r.cached)
+	if entry, ok := r.cache[hash]; ok && time.Since(entry.cachedAt) < r.cacheTTL {
+		out := make([]Event, len(entry.events))
+		copy(out, entry.events)
 		r.mu.RUnlock()
 		return out, nil
 	}
@@ -179,12 +206,38 @@ func (r *Reader) loadEventsRange(from, to time.Time) ([]Event, error) {
 	}
 
 	r.mu.Lock()
-	r.cached = events
-	r.cachedAt = time.Now()
-	r.cacheHash = hash
+	r.setCacheLocked(hash, events)
 	r.mu.Unlock()
 
 	return events, nil
+}
+
+// setCacheLocked stores a fresh result under hash, first dropping expired
+// entries and then, if still at capacity, the single oldest entry. Caller
+// must hold r.mu for writing.
+func (r *Reader) setCacheLocked(hash string, events []Event) {
+	now := time.Now()
+	for k, v := range r.cache {
+		if now.Sub(v.cachedAt) >= r.cacheTTL {
+			delete(r.cache, k)
+		}
+	}
+	for len(r.cache) >= readerCacheMaxEntries {
+		var oldestKey string
+		var oldestAt time.Time
+		first := true
+		for k, v := range r.cache {
+			if first || v.cachedAt.Before(oldestAt) {
+				oldestKey, oldestAt = k, v.cachedAt
+				first = false
+			}
+		}
+		if oldestKey == "" {
+			break
+		}
+		delete(r.cache, oldestKey)
+	}
+	r.cache[hash] = readerCacheEntry{events: events, cachedAt: now}
 }
 
 func Aggregate(events []Event) Stats {
@@ -628,11 +681,11 @@ func (r *Reader) DeleteEventsByEndpointID(dataDir, endpointID string) error {
 		}
 	}
 
-	// Clear cache since we modified files
+	// Clear cache since we modified files. Every cached range could include
+	// one of the rewritten files, so drop all entries rather than try to
+	// figure out which ones are affected.
 	r.mu.Lock()
-	r.cached = nil
-	r.cachedAt = time.Time{}
-	r.cacheHash = ""
+	r.cache = make(map[string]readerCacheEntry)
 	r.mu.Unlock()
 
 	return nil

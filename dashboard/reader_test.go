@@ -26,6 +26,72 @@ func writeEventsFile(t *testing.T, dir, dateStr string, events []Event) {
 
 func boolPtr(b bool) *bool { return &b }
 
+// TestLoadEvents_CachesMultipleRangesSimultaneously guards against a
+// regression to a single-slot cache: a handler that needs two different
+// date ranges in the same request (e.g. /api/endpoints loading an all-time
+// inventory range plus a period-scoped activity range) must not have one
+// range's cache entry evict the other's. With three file sets that are each
+// genuinely distinct (different sets of on-disk files), all three must be
+// able to coexist in the cache at once.
+func TestLoadEvents_CachesMultipleRangesSimultaneously(t *testing.T) {
+	dir := t.TempDir()
+	now := time.Now().UTC()
+	writeEventsFile(t, dir, now.Format("20060102"), []Event{{EventID: "today", EventType: "SESSION_SUMMARY"}})
+	writeEventsFile(t, dir, now.AddDate(0, 0, -20).Format("20060102"), []Event{{EventID: "recentish", EventType: "SESSION_SUMMARY"}})
+	writeEventsFile(t, dir, now.AddDate(0, 0, -400).Format("20060102"), []Event{{EventID: "old", EventType: "SESSION_SUMMARY"}})
+
+	r := NewReader(dir)
+
+	sevenDay, err := r.LoadEvents(7)
+	require.NoError(t, err)
+	assert.Len(t, sevenDay, 1, "7-day range should only see today's file")
+
+	thirtyDay, err := r.LoadEvents(30)
+	require.NoError(t, err)
+	assert.Len(t, thirtyDay, 2, "30-day range should see today's and the -20d file")
+
+	allTime, err := r.LoadEvents(0)
+	require.NoError(t, err)
+	assert.Len(t, allTime, 3, "all-time range should see all three files")
+
+	r.mu.RLock()
+	n := len(r.cache)
+	r.mu.RUnlock()
+	assert.Equal(t, 3, n, "all three distinct ranges must coexist in the cache, not evict one another")
+
+	// Re-requesting the 7-day range within the TTL must still return its own
+	// correct result (not some other range's cached data).
+	sevenDayAgain, err := r.LoadEvents(7)
+	require.NoError(t, err)
+	assert.Len(t, sevenDayAgain, 1)
+}
+
+// TestLoadEvents_CacheStaysBounded guards against the cache itself becoming
+// an unbounded memory leak: requesting more distinct ranges than
+// readerCacheMaxEntries must evict older entries rather than growing
+// forever.
+func TestLoadEvents_CacheStaysBounded(t *testing.T) {
+	dir := t.TempDir()
+	now := time.Now().UTC()
+	// One file per day further in the past widens the all-time file set by
+	// one for each subsequent LoadEvents(days) call with an increasing days
+	// value, giving each call a distinct hash.
+	for i := 0; i < readerCacheMaxEntries+5; i++ {
+		writeEventsFile(t, dir, now.AddDate(0, 0, -i).Format("20060102"), []Event{{EventID: "e", EventType: "SESSION_SUMMARY"}})
+	}
+
+	r := NewReader(dir)
+	for i := 1; i <= readerCacheMaxEntries+5; i++ {
+		_, err := r.LoadEvents(i)
+		require.NoError(t, err)
+	}
+
+	r.mu.RLock()
+	n := len(r.cache)
+	r.mu.RUnlock()
+	assert.LessOrEqual(t, n, readerCacheMaxEntries, "cache must not grow past readerCacheMaxEntries")
+}
+
 func TestLoadEvents_EmptyDir(t *testing.T) {
 	dir := t.TempDir()
 	r := NewReader(dir)
