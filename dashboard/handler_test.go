@@ -2,6 +2,7 @@ package dashboard
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -773,4 +774,73 @@ func TestHandler_Groups_EditorCannotCreateGroup(t *testing.T) {
 
 	rec := doWithSession(t, h, http.MethodPost, "/api/groups", sid, `{"name":"nova"}`)
 	assert.Equal(t, http.StatusForbidden, rec.Code)
+}
+
+func seedEndpointEvents(t *testing.T, sessions, packages int) http.Handler {
+	t.Helper()
+	dir := t.TempDir()
+	now := time.Now().UTC()
+	var events []Event
+	for i := 0; i < packages; i++ {
+		events = append(events, Event{
+			EndpointID: "ep1", EventType: "PACKAGE_DECISION", PackageName: fmt.Sprintf("pkg-%d", i),
+			ReceivedAt: now.Add(-time.Hour - time.Duration(i)*time.Second),
+		})
+	}
+	for i := 0; i < sessions; i++ {
+		events = append(events, Event{
+			EndpointID: "ep1", EventType: "SESSION_SUMMARY", PackageManager: "UV",
+			ReceivedAt: now.Add(-time.Duration(i) * time.Second),
+		})
+	}
+	events = append(events, Event{EndpointID: "other", EventType: "PACKAGE_DECISION", PackageName: "not-mine", ReceivedAt: now})
+	writeEventsFile(t, dir, now.Format("20060102"), events)
+	return Handler(dir, HandlerDeps{})
+}
+
+func getEndpointEvents(t *testing.T, h http.Handler, query string) []Event {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodGet, "/api/endpoints/ep1/events"+query, nil)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	var out []Event
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	return out
+}
+
+func TestHandler_EndpointEvents_EventTypeFilterBeatsSessionNoise(t *testing.T) {
+	h := seedEndpointEvents(t, 250, 3)
+
+	got := getEndpointEvents(t, h, "?event_type=package_decision")
+
+	require.Len(t, got, 3)
+	for _, ev := range got {
+		assert.Equal(t, "PACKAGE_DECISION", ev.EventType)
+		assert.Equal(t, "ep1", ev.EndpointID)
+	}
+}
+
+func TestHandler_EndpointEvents_DefaultStillCapsAt200(t *testing.T) {
+	h := seedEndpointEvents(t, 250, 3)
+
+	assert.Len(t, getEndpointEvents(t, h, ""), 200)
+}
+
+func TestHandler_EndpointEvents_Limit(t *testing.T) {
+	tests := []struct {
+		name  string
+		query string
+		want  int
+	}{
+		{"explicit limit above default", "?event_type=package_decision&limit=300", 300},
+		{"limit capped at max", "?event_type=package_decision&limit=999999", 5000},
+		{"invalid limit falls back to default", "?event_type=package_decision&limit=abc", 200},
+	}
+	h := seedEndpointEvents(t, 0, 6000)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Len(t, getEndpointEvents(t, h, tt.query), tt.want)
+		})
+	}
 }

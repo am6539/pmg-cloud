@@ -988,10 +988,10 @@ verOptions.map(function(v){return'<option value="'+h(v)+'"'+(S.epVersionFilter==
 '</tbody></table></div>';
 }
 
-var _drawerEp=null,_drawerTab='overview',_drawerEvents=[],_drawerEvErr=null,_drawerEvLoading=false;
+var _drawerEp=null,_drawerTab='overview',_drawerEvents=[],_drawerPkgEvents=[],_drawerEvErr=null,_drawerEvLoading=false;
 function openEpDrawer(i){
   var ep=epList[i];if(!ep)return;
-  _drawerEp=ep;_drawerTab='overview';_drawerEvents=[];_drawerEvErr=null;_drawerEvLoading=true;
+  _drawerEp=ep;_drawerTab='overview';_drawerEvents=[];_drawerPkgEvents=[];_drawerEvErr=null;_drawerEvLoading=true;
   var st=epStatus(ep.last_seen);
   var type=endpointType(ep);
   document.getElementById('drawer-title').textContent=ep.label||ep.hostname||ep.endpoint_id;
@@ -1007,8 +1007,9 @@ function openEpDrawer(i){
   document.getElementById('drawer-bg').style.display='block';
   setTimeout(function(){document.getElementById('drawer').classList.add('open');},10);
   renderEpTab(); // Overview renders immediately from already-loaded endpoint data
-  api('/api/endpoints/'+encodeURIComponent(ep.endpoint_id)+'/events?'+buildQ()).then(function(evs){
-    _drawerEvents=evs||[];_drawerEvLoading=false;
+  var epUrl='/api/endpoints/'+encodeURIComponent(ep.endpoint_id)+'/events?';
+  Promise.all([api(epUrl+buildQ()),api(epUrl+buildQ({event_type:'package_decision',limit:5000}))]).then(function(r){
+    _drawerEvents=r[0]||[];_drawerPkgEvents=r[1]||[];_drawerEvLoading=false;
     renderEpTab();
   }).catch(function(e){
     _drawerEvErr=e.message;_drawerEvLoading=false;
@@ -1060,18 +1061,21 @@ function renderEpTab(){
     body.innerHTML=
     '<div style="font-size:13px;font-weight:600;margin-bottom:12px;color:var(--tx2)">Recent Events ('+evs.length+')</div>'+
     (evs.length?evs.map(function(ev){
+      var isSummary=ev.event_type==='SESSION_SUMMARY';
       return'<div class="ep-event-item">'+
-      '<div class="flex" style="margin-bottom:4px;gap:6px">'+actionBdg(ev.action)+ecoBdg(ev.ecosystem)+
+      '<div class="flex" style="margin-bottom:4px;gap:6px">'+
+      (isSummary?bdg(ev.outcome||'session','gray')+'<span style="font-size:11px;color:var(--tx3)">'+h(ev.package_manager||'—')+'</span>':actionBdg(ev.action)+ecoBdg(ev.ecosystem))+
       '<span style="font-size:11px;color:var(--tx4);margin-left:auto">'+fmtDate(ev.received_at)+'</span></div>'+
-      '<div style="font-size:13px;color:var(--tx)">'+h(ev.package_name||'—')+
-      (ev.package_version?' <span style="font-size:11px;color:var(--tx4)">v'+h(ev.package_version)+'</span>':'')+
+      '<div style="font-size:13px;color:var(--tx)">'+
+      (isSummary?'Session &middot; analyzed '+h(String(ev.total_analyzed||0)):h(ev.package_name||'—')+
+      (ev.package_version?' <span style="font-size:11px;color:var(--tx4)">v'+h(ev.package_version)+'</span>':''))+
       '</div></div>';
     }).join(''):'<div class="empty">No events</div>');
   }else if(_drawerTab==='packages'){
     if(_drawerEvLoading){body.innerHTML='<div class="empty"><span class="spin">&#8635;</span> Loading&#8230;</div>';return;}
     if(_drawerEvErr){body.innerHTML='<div class="empty">&#9888;&#65039; '+h(_drawerEvErr)+'</div>';return;}
     var pkgMap={};
-    _drawerEvents.forEach(function(ev){
+    _drawerPkgEvents.forEach(function(ev){
       if(!ev.package_name)return;
       var k=ev.package_name;
       if(!pkgMap[k])pkgMap[k]={name:k,ecosystem:ev.ecosystem,count:0,blocked:0};
@@ -1093,7 +1097,7 @@ function renderEpTab(){
 function closeDrawer(){
   document.getElementById('drawer').classList.remove('open');
   document.getElementById('drawer-bg').style.display='none';
-  _drawerEp=null;_drawerTab='overview';_drawerEvents=[];_drawerEvErr=null;_drawerEvLoading=false;
+  _drawerEp=null;_drawerTab='overview';_drawerEvents=[];_drawerPkgEvents=[];_drawerEvErr=null;_drawerEvLoading=false;
 }
 
 /* ---- PACKAGES ---- */

@@ -557,17 +557,28 @@ func Handler(dataDir string, deps HandlerDeps) http.Handler {
 			return
 		}
 		events = filterByGroup(events, r.URL.Query().Get("group_id"))
+		// Filter by type before capping: session summaries are far more frequent
+		// than package decisions and would otherwise crowd them out of the cap.
+		wantType := strings.ToUpper(r.URL.Query().Get("event_type"))
 		filtered := make([]Event, 0)
 		for _, ev := range events {
-			if ev.EndpointID == endpointID {
-				filtered = append(filtered, ev)
+			if ev.EndpointID != endpointID {
+				continue
 			}
+			if wantType != "" && strings.ToUpper(ev.EventType) != wantType {
+				continue
+			}
+			filtered = append(filtered, ev)
 		}
 		sort.Slice(filtered, func(i, j int) bool {
 			return filtered[i].ReceivedAt.After(filtered[j].ReceivedAt)
 		})
-		if len(filtered) > 200 {
-			filtered = filtered[:200]
+		limit := 200
+		if n, err := strconv.Atoi(r.URL.Query().Get("limit")); err == nil && n > 0 {
+			limit = min(n, 5000)
+		}
+		if len(filtered) > limit {
+			filtered = filtered[:limit]
 		}
 		writeJSON(w, filtered)
 	})
